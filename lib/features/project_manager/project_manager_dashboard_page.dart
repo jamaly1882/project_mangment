@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/utils/costs.dart';
@@ -350,97 +351,73 @@ class ProjectManagerDashboardPage extends StatelessWidget {
   }
 
   // =============================================================
-  // بطاقة تكاليف المشروع
+  // بطاقة تكاليف المشروع (محسوبة من تكاليف البنود)
   // =============================================================
 
   Widget _buildCostsSection(Map<String, dynamic> project) {
-    final planned = ProjectCosts.breakdownOf(project);
-    final plannedTotal = ProjectCosts.totalOf(project);
-
-    return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      future: firestore
-          .collection('items')
-          .where(
-            'projectId',
-            isEqualTo: projectId,
-          )
-          .get(),
+    return FutureBuilder<ProjectCostTotals>(
+      future: ProjectCostSync.totalsFor(projectId),
       builder: (context, snapshot) {
-        final assigned = <String, double>{
-          for (final category in ProjectCosts.categories)
-            category.key: 0.0,
-        };
-
-        double assignedTotal = 0;
-
-        for (final doc in snapshot.data?.docs ??
-            <QueryDocumentSnapshot<Map<String, dynamic>>>[]) {
-          final breakdown = ProjectCosts.breakdownOf(doc.data());
-
-          for (final entry in breakdown.entries) {
-            assigned[entry.key] =
-                (assigned[entry.key] ?? 0) + entry.value;
-            assignedTotal += entry.value;
-          }
+        if (snapshot.hasError) {
+          return AppError(
+            message:
+                'تعذر حساب تكاليف المشروع من بنوده:\n${snapshot.error}',
+          );
         }
 
-        final remaining = plannedTotal - assignedTotal;
+        final totals =
+            snapshot.data ?? ProjectCostTotals.empty();
+
+        final storedTotal = ProjectCosts.totalOf(project);
+        final displayTotal =
+            snapshot.hasData ? totals.total : storedTotal;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             CostSummaryCard(
-              title: 'تكاليف المشروع مقابل تكاليف البنود',
-              breakdown: assigned,
-              total: assignedTotal,
-              reference: planned,
-              referenceLabel: 'المخطط للمشروع',
+              title: 'تكاليف المشروع — محسوبة من بنوده',
+              breakdown: snapshot.hasData
+                  ? totals.breakdown
+                  : ProjectCosts.breakdownOf(project),
+              total: displayTotal,
               icon: Icons.payments_outlined,
             ),
 
             AppSpacing.verticalMd,
 
             AppCard(
-              color: plannedTotal <= 0
-                  ? AppColors.background
-                  : (remaining < 0
-                      ? AppColors.danger.withValues(alpha: 0.06)
-                      : AppColors.success.withValues(alpha: 0.06)),
+              color: AppColors.background,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+                crossAxisAlignment:
+                    CrossAxisAlignment.stretch,
                 children: [
                   AppInfoRow(
-                    icon: Icons.account_balance_wallet_outlined,
-                    label: 'إجمالي مخطط للمشروع',
-                    value: plannedTotal > 0
-                        ? ProjectCosts.formatMoney(plannedTotal)
-                        : 'لم يحدده مسؤول النظام بعد',
+                    icon: Icons.list_alt,
+                    label: 'بنود المشروع',
+                    value: snapshot.hasData
+                        ? '${totals.itemCount} بند، ولـ '
+                            '${totals.costedItemCount} بند '
+                            'تكلفته مسجلة'
+                        : 'جاري الحساب...',
                   ),
+
                   AppSpacing.verticalXs,
+
                   AppInfoRow(
-                    icon: Icons.assignment_outlined,
-                    label: 'مجموع تكاليف البنود',
-                    value: ProjectCosts.formatMoney(assignedTotal),
+                    icon: Icons.calculate_outlined,
+                    label: 'إجمالي تكلفة المشروع',
+                    value: ProjectCosts.formatMoney(displayTotal),
                   ),
-                  AppSpacing.verticalXs,
-                  if (plannedTotal > 0)
-                    AppInfoRow(
-                      icon: remaining < 0
-                          ? Icons.warning_amber_rounded
-                          : Icons.account_balance_wallet_outlined,
-                      label: remaining < 0
-                          ? 'تجاوز المخطط'
-                          : 'المتبقي من المخطط',
-                      value: ProjectCosts.formatMoney(
-                        remaining.abs(),
-                      ),
-                    )
-                  else
-                    const Text(
-                      'أضف تكاليف المشروع من صفحة المشاريع لدى مسؤول '
-                      'النظام ليتم مقارنتها بتكاليف البنود.',
-                      style: AppTextStyles.bodySecondary,
-                    ),
+
+                  AppSpacing.verticalSm,
+
+                  const Text(
+                    'لا تُدخل تكاليف المشروع يدويًا؛ كل بند يضيف '
+                    'تكاليف مواده وأجور عمالته ومعداته ومحروقاته من '
+                    'صفحة تفاصيل البند، ثم تُجمّع هنا تلقائيًا.',
+                    style: AppTextStyles.bodySecondary,
+                  ),
                 ],
               ),
             ),

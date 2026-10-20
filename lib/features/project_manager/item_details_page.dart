@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/utils/costs.dart';
@@ -37,6 +38,31 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   final TextEditingController _defaultOilQuantityController = TextEditingController();
   final TextEditingController _defaultWorkingHoursController = TextEditingController();
 
+  /// كمية العقد — يمكن تعديلها من نفس الصفحة.
+  final TextEditingController _contractQuantityController =
+      TextEditingController();
+
+  String? _selectedUnit;
+
+  /// قائمة الوحدات المعروضة (تشمل أي وحدة قديمة محفوظة في البند).
+  List<String> _knownUnits = <String>[];
+
+  List<String> get _unitOptions =>
+      _knownUnits.isEmpty ? _units : _knownUnits;
+
+  static const List<String> _units = [
+    'م3',
+    'م2',
+    'م',
+    'طن',
+    'كجم',
+    'قطعة',
+    'ساعة',
+    'لتر',
+    'يوم',
+    'أخرى',
+  ];
+
   /// تكلفة الوحدة لكل قسم تكلفة (مواد / أجور / معدات / محروقات).
   final Map<String, TextEditingController> _unitCostControllers = {
     for (final category in ProjectCosts.categories)
@@ -67,12 +93,10 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   double? _equipmentMeterAtAssignment;
   String? _selectedFuelType;
 
-  /// التكاليف المخططة للمشروع (للمقارنة عند حفظ تكاليف البند).
-  Map<String, double> _projectPlannedCosts = <String, double>{};
-  double _projectPlannedTotal = 0;
-
-  /// مجموع تكاليف بقية بنود المشروع لنفس الأقسام.
+  /// مجموع تكاليف بقية بنود المشروع،
+  /// لأن تكلفة المشروع تُحسب تلقائيًا من بنوده.
   Map<String, double> _otherItemsCosts = <String, double>{};
+  int _otherItemsCount = 0;
 
   static const List<String> _fuelTypes = ['ديزل', 'بترول'];
 
@@ -92,6 +116,7 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
     _defaultFuelQuantityController.dispose();
     _defaultOilQuantityController.dispose();
     _defaultWorkingHoursController.dispose();
+    _contractQuantityController.dispose();
 
     for (final controller in _unitCostControllers.values) {
       controller.dispose();
@@ -104,9 +129,34 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
     super.dispose();
   }
 
-  /// الكمية التعاقدية للبند كما هي محفوظة.
-  double get _contractQuantity =>
-      _toDouble(_itemData?['contractQuantity']) ?? 0;
+  /// الكمية التعاقدية: القيمة المدخلة حاليًا أو المحفوظة.
+  double get _contractQuantity {
+    final entered =
+        ProjectCosts.parseOptional(_contractQuantityController.text);
+
+    if (entered != null && entered > 0) return entered;
+
+    return ProjectCosts.toDouble(_itemData?['contractQuantity']);
+  }
+
+  /// تنسيق تاريخ قادم من Firestore.
+  String _formatDate(dynamic value) {
+    if (value is Timestamp) {
+      final date = value.toDate();
+      return '${date.day.toString().padLeft(2, '0')}/'
+          '${date.month.toString().padLeft(2, '0')}/'
+          '${date.year}';
+    }
+
+    if (value is DateTime) {
+      return '${value.day.toString().padLeft(2, '0')}/'
+          '${value.month.toString().padLeft(2, '0')}/'
+          '${value.year}';
+    }
+
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? 'لم يُحدد بعد' : text;
+  }
 
   /// قيمة تكلفة الوحدة المدخلة حاليًا.
   double _unitCostValue(String key) =>
@@ -217,6 +267,24 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       _selectedSupervisorName =
           supervisorName.isEmpty ? null : supervisorName;
 
+      _contractQuantityController.text = ProjectCosts.toEditText(
+        ProjectCosts.toDouble(itemData['contractQuantity']),
+      );
+
+      final loadedUnit = _stringValue(itemData['unit']);
+
+      if (loadedUnit.isEmpty) {
+        _selectedUnit = null;
+      } else if (_units.contains(loadedUnit)) {
+        _selectedUnit = loadedUnit;
+      } else {
+        // وحدة قديمة غير موجودة في القائمة: نضيفها مؤقتًا.
+        _selectedUnit = loadedUnit;
+        if (!_units.contains(loadedUnit)) {
+          _knownUnits = <String>[..._units, loadedUnit];
+        }
+      }
+
       // تكاليف البند: نقرأ من التفاصيل أولًا ثم من بيانات البند.
       final costSource = <String, dynamic>{
         ...itemData,
@@ -270,8 +338,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
 
       String? projectName;
 
-      var plannedCosts = <String, double>{};
-      var plannedTotal = 0.0;
 
       final projectDoc = await _firestore.collection('projects').doc(widget.projectId).get();
       if (projectDoc.exists) {
@@ -281,14 +347,13 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         );
         if (projectName.isEmpty) projectName = null;
 
-        plannedCosts = ProjectCosts.breakdownOf(project);
-        plannedTotal = ProjectCosts.totalOf(project);
       }
 
       // مجموع تكاليف بقية بنود المشروع لنفس أقسام التكلفة.
       var otherCosts = <String, double>{
         for (final category in ProjectCosts.categories) category.key: 0.0,
       };
+      var otherCount = 0;
 
       try {
         final itemsSnapshot = await _firestore
@@ -298,6 +363,8 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
 
         for (final doc in itemsSnapshot.docs) {
           if (doc.id == widget.itemId) continue;
+
+          otherCount++;
 
           final other = ProjectCosts.breakdownOf(doc.data());
 
@@ -314,9 +381,8 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       setState(() {
         _itemData = itemData;
         _projectName = projectName;
-        _projectPlannedCosts = plannedCosts;
-        _projectPlannedTotal = plannedTotal;
         _otherItemsCosts = otherCosts;
+        _otherItemsCount = otherCount;
         _loadingItem = false;
       });
     } catch (e) {
@@ -383,6 +449,34 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         return;
       }
     }
+
+    // بيانات البند: الكمية التعاقدية والوحدة.
+    final quantityValue =
+        ProjectCosts.parseOptional(_contractQuantityController.text);
+
+    if (quantityValue == null || quantityValue <= 0) {
+      AppWidgets.showWarning(context, 'أدخل كمية تعاقدية صحيحة');
+      return;
+    }
+
+    if (_selectedUnit == null || _selectedUnit!.trim().isEmpty) {
+      AppWidgets.showWarning(context, 'اختر وحدة البند');
+      return;
+    }
+
+    final executedSoFar = ProjectCosts.nonNegative(
+      _itemData?['executedQuantity'],
+    );
+
+    if (quantityValue < executedSoFar) {
+      AppWidgets.showWarning(
+        context,
+        'لا يمكن أن تكون الكمية التعاقدية أقل من الكمية المنفذة '
+        '(${ProjectCosts.formatNumber(executedSoFar)})',
+      );
+      return;
+    }
+
     if (_selectedFuelType == null || _selectedFuelType!.isEmpty) {
       AppWidgets.showWarning(context, 'يرجى اختيار نوع الوقود');
       return;
@@ -505,8 +599,8 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         'itemDefinitionName': _itemData!['itemDefinitionName'],
         'itemTypeId': _itemData!['typeId'],
         'itemTypeName': _itemData!['typeName'],
-        'contractQuantity': _itemData!['contractQuantity'],
-        'unit': _itemData!['unit'],
+        'contractQuantity': quantityValue,
+        'unit': _selectedUnit,
         'code': _itemData!['code'],
         'description': _descriptionController.text.trim(),
         'notes': _notesController.text.trim(),
@@ -559,6 +653,8 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         _firestore.collection('items').doc(widget.itemId),
         <String, dynamic>{
           ...costData,
+          'contractQuantity': quantityValue,
+          'unit': _selectedUnit,
           'supervisorId': _selectedSupervisorId,
           'supervisorName': supervisorDisplayName,
 
@@ -617,23 +713,24 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         _selectedEquipmentWorkUnit = equipmentWorkUnit;
         _equipmentMeterAtAssignment = equipmentCurrentMeter;
       });
+      // تكاليف المشروع = مجموع تكاليف بنوده.
+      ProjectCostTotals? projectTotals;
+
+      try {
+        projectTotals =
+            await ProjectCostSync.applyTotals(widget.projectId);
+      } catch (e) {
+        debugPrint('تعذرت مزامنة تكاليف المشروع: $e');
+      }
+
+      if (!mounted) return;
+
       AppWidgets.showSuccess(
         context,
-        'تم حفظ تفاصيل البند وربط المعدة ومشرف البند بنجاح',
+        'تم حفظ تفاصيل البند وتكاليفه'
+        '${itemTotalCost > 0 ? ' — ${ProjectCosts.formatMoney(itemTotalCost)}' : ''}'
+        '${projectTotals != null ? '\nإجمالي تكلفة المشروع: ${ProjectCosts.formatMoney(projectTotals.total)}' : ''}',
       );
-
-      // تنبيه غير معطّل عند تجاوز المخطط العام للمشروع.
-      if (_projectPlannedTotal > 0) {
-        final remaining = _projectPlannedTotal - itemTotalCost;
-
-        if (remaining < 0 && mounted) {
-          AppWidgets.showWarning(
-            context,
-            'إجمالي تكلفة البند تجاوز المخطط العام للمشروع بمبلغ '
-            '${ProjectCosts.formatMoney(remaining.abs())}',
-          );
-        }
-      }
 
       await _loadItem();
     } catch (e) {
@@ -644,43 +741,181 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
     }
   }
 
-  Widget _buildItemInfo() {
+  // ============================================================
+  // بيانات البند (بيانات العقد + تفاصيله)
+  // ============================================================
+
+  Widget _buildItemDataSection() {
     final data = _itemData!;
-    final itemName = _stringValue(
-      data['name'],
-      defaultValue: _stringValue(data['itemDefinitionName'], defaultValue: 'بدون اسم'),
+
+    final definitionName = _stringValue(
+      data['itemDefinitionName'],
+      defaultValue: _stringValue(data['name'], defaultValue: 'بدون اسم'),
     );
-    final typeName = _stringValue(data['typeName'], defaultValue: 'بدون نوع');
-    final quantity = _stringValue(data['contractQuantity'], defaultValue: '0');
-    final unit = _stringValue(data['unit'], defaultValue: '');
+
+    final typeName =
+        _stringValue(data['typeName'], defaultValue: 'بدون نوع');
     final code = _stringValue(data['code'], defaultValue: '—');
+    final projectName = _projectName ?? widget.projectId;
+
+    final unitOptions = <String>{
+      ..._unitOptions,
+      if (_selectedUnit != null && _selectedUnit!.isNotEmpty) _selectedUnit!,
+    }.toList();
 
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Icon(Icons.assignment_outlined, size: 38, color: AppColors.primary),
-          AppSpacing.verticalSm,
-          Text(itemName, textAlign: TextAlign.center, style: AppTextStyles.pageTitle),
-          AppSpacing.verticalXs,
-          Text('النوع: $typeName', textAlign: TextAlign.center, style: AppTextStyles.bodySecondary),
-          AppSpacing.verticalMd,
-          AppInfoRow(label: 'المشروع', value: _projectName ?? widget.projectId, icon: Icons.business_outlined),
-          AppSpacing.verticalSm,
-          AppInfoRow(label: 'كود البند', value: code, icon: Icons.qr_code_2_outlined),
-          AppSpacing.verticalSm,
-          AppInfoRow(label: 'كمية العقد', value: '$quantity $unit', icon: Icons.numbers_outlined),
-          AppSpacing.verticalSm,
-          AppInfoRow(
-            label: 'مشرف البند',
-            value: _selectedSupervisorName ?? 'لم يُحدد بعد',
-            icon: Icons.supervisor_account_outlined,
+          const AppSectionTitle(
+            title: 'بيانات البند',
+            subtitle:
+                'البند والنوع والكمية التعاقدية والوحدة وتفاصيل البند',
+            icon: Icons.assignment_outlined,
           ),
           AppSpacing.verticalSm,
           AppInfoRow(
-            label: 'إجمالي تكلفة البند',
-            value: ProjectCosts.formatMoney(ProjectCosts.totalOf(data)),
-            icon: Icons.payments_outlined,
+            label: 'المشروع',
+            value: projectName,
+            icon: Icons.business_outlined,
+          ),
+          AppSpacing.verticalXs,
+          AppInfoRow(
+            label: 'البند',
+            value: definitionName,
+            icon: Icons.category_outlined,
+          ),
+          AppSpacing.verticalXs,
+          AppInfoRow(
+            label: 'النوع',
+            value: typeName,
+            icon: Icons.list_alt_outlined,
+          ),
+          AppSpacing.verticalXs,
+          AppInfoRow(
+            label: 'كود البند',
+            value: code,
+            icon: Icons.qr_code_2_outlined,
+          ),
+          AppSpacing.verticalMd,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 2,
+                child: AppNumberField(
+                  controller: _contractQuantityController,
+                  label: 'الكمية التعاقدية *',
+                  hint: 'أدخل الكمية التعاقدية',
+                  prefixIcon: Icons.numbers_outlined,
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+              AppSpacing.horizontalMd,
+              Expanded(
+                child: AppDropdown<String>(
+                  label: 'الوحدة *',
+                  hint: 'اختر الوحدة',
+                  value: _selectedUnit,
+                  prefixIcon: Icons.straighten_outlined,
+                  items: unitOptions
+                      .map(
+                        (unit) => DropdownMenuItem<String>(
+                          value: unit,
+                          child: Text(unit),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) => setState(() {
+                    _selectedUnit = value;
+                  }),
+                ),
+              ),
+            ],
+          ),
+          AppSpacing.verticalMd,
+          AppTextField(
+            controller: _descriptionController,
+            label: 'تفاصيل البند',
+            hint: 'أدخل وصف البند',
+            prefixIcon: Icons.description_outlined,
+            maxLines: 3,
+          ),
+          AppSpacing.verticalMd,
+          AppTextField(
+            controller: _notesController,
+            label: 'ملاحظات',
+            hint: 'أدخل الملاحظات',
+            prefixIcon: Icons.notes_outlined,
+            maxLines: 3,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // ملخص التنفيذ
+  // ============================================================
+
+  Widget _buildExecutionSummaryCard() {
+    final data = _itemData!;
+
+    final contract = _contractQuantity;
+    final executed = ProjectCosts.nonNegative(data['executedQuantity']);
+    final remaining =
+        (contract - executed) < 0 ? 0.0 : (contract - executed);
+    final progress = contract <= 0
+        ? 0.0
+        : (executed / contract).clamp(0.0, 1.0).toDouble();
+    final unit = _stringValue(data['unit']);
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const AppSectionTitle(
+            title: 'التنفيذ',
+            subtitle: 'الكميات المنفذة والمتبقية وتواريخ التنفيذ',
+            icon: Icons.timeline_outlined,
+          ),
+          AppSpacing.verticalSm,
+          AppProgress(
+            value: progress,
+            label: 'نسبة التنفيذ',
+            height: 8,
+          ),
+          AppSpacing.verticalMd,
+          AppInfoRow(
+            label: 'الكمية المنفذة',
+            value:
+                '${ProjectCosts.formatNumber(executed)} $unit'.trim(),
+            icon: Icons.done_all,
+          ),
+          AppSpacing.verticalXs,
+          AppInfoRow(
+            label: 'الكمية المتبقية',
+            value:
+                '${ProjectCosts.formatNumber(remaining)} $unit'.trim(),
+            icon: Icons.pending_actions_outlined,
+          ),
+          AppSpacing.verticalXs,
+          AppInfoRow(
+            label: 'تاريخ بداية التنفيذ',
+            value: _formatDate(data['executionStartDate']),
+            icon: Icons.calendar_month_outlined,
+          ),
+          AppSpacing.verticalXs,
+          AppInfoRow(
+            label: 'تاريخ نهاية التنفيذ',
+            value: _formatDate(data['executionEndDate']),
+            icon: Icons.event_outlined,
+          ),
+          AppSpacing.verticalSm,
+          const Text(
+            'تواريخ التنفيذ يسجّلها المهندس، والكميات المنفذة يتابعها '
+            'مدير المشروع من صفحة البنود، والاستهلاك يسجّله مشرف البند.',
+            style: AppTextStyles.bodySecondary,
           ),
         ],
       ),
@@ -898,9 +1133,9 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 AppInfoRow(
-                  label: 'كمية العقد',
+                  label: 'الكمية التعاقدية',
                   value: '${ProjectCosts.formatNumber(_contractQuantity)} '
-                      '${_stringValue(_itemData?['unit'])}'.trim(),
+                      '${_selectedUnit ?? _stringValue(_itemData?['unit'])}'.trim(),
                   icon: Icons.numbers_outlined,
                 ),
                 AppSpacing.verticalXs,
@@ -911,7 +1146,7 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
                 ),
                 AppSpacing.verticalXs,
                 AppInfoRow(
-                  label: 'إجمالي تكلفة البند المتوقع',
+                  label: 'إجمالي تكلفة البند',
                   value: ProjectCosts.formatMoney(_itemTotalCost),
                   icon: Icons.payments_outlined,
                 ),
@@ -919,125 +1154,80 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
             ),
           ),
           AppSpacing.verticalMd,
-          _buildCostComparison(),
+          _buildProjectCostsCard(),
         ],
       ),
     );
   }
 
-  /// مقارنة تكلفة البند بالتكلفة المخططة للمشروع.
-  Widget _buildCostComparison() {
-    if (_projectPlannedTotal <= 0) {
-      return const AppCard(
-        color: AppColors.background,
-        child: Row(
-          children: [
-            Icon(Icons.info_outline, color: AppColors.textSecondary, size: 20),
-            AppSpacing.horizontalSm,
-            Expanded(
-              child: Text(
-                'لم يحدد مسؤول النظام تكاليف المشروع بعد، '
-                'لذلك لا توجد مقارنة مع المخطط العام للمشروع.',
-                style: AppTextStyles.bodySecondary,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
+  /// ملخص تكلفة المشروع بعد حفظ هذا البند.
+  /// تكلفة المشروع ليست إدخالًا يدويًا، بل مجموع تكاليف بنوده.
+  Widget _buildProjectCostsCard() {
+    final current = <String, double>{
+      for (final category in ProjectCosts.categories)
+        category.key: _totalCostValue(category.key),
+    };
 
-    final othersTotal = _otherItemsCosts.values
-        .fold<double>(0, (sum, value) => sum + value);
+    final projected = <String, double>{
+      for (final category in ProjectCosts.categories)
+        category.key:
+            (current[category.key] ?? 0) +
+                (_otherItemsCosts[category.key] ?? 0),
+    };
 
-    final total = _itemTotalCost;
-    final remaining = _projectPlannedTotal - othersTotal;
-    final exceeded = total > remaining + 0.01;
+    double sumOf(Map<String, double> map) =>
+        map.values.fold<double>(0, (sum, value) => sum + value);
+
+    final projectedTotal = sumOf(projected);
+    final itemTotal = sumOf(current);
+    final share = projectedTotal <= 0
+        ? 0.0
+        : (itemTotal / projectedTotal).clamp(0.0, 1.0).toDouble();
 
     return AppCard(
-      color: exceeded
-          ? AppColors.danger.withValues(alpha: 0.06)
-          : AppColors.success.withValues(alpha: 0.06),
+      color: AppColors.background,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Icon(
-                exceeded
-                    ? Icons.warning_amber_rounded
-                    : Icons.verified_outlined,
-                size: 20,
-                color: exceeded ? AppColors.danger : AppColors.success,
-              ),
-              AppSpacing.horizontalSm,
-              Expanded(
-                child: Text(
-                  exceeded
-                      ? 'تكلفة هذا البند تتجاوز المتبقي من مخطط المشروع'
-                      : 'تكلفة هذا البند ضمن المخطط العام للمشروع',
-                  style: AppTextStyles.body.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: exceeded ? AppColors.danger : AppColors.success,
-                  ),
-                ),
-              ),
-            ],
+          const AppSectionTitle(
+            title: 'تكلفة المشروع',
+            subtitle: 'محسوبة تلقائيًا من مجموع تكاليف البنود',
+            icon: Icons.account_balance_wallet_outlined,
           ),
           AppSpacing.verticalSm,
           for (final category in ProjectCosts.categories)
             AppInfoRow(
-              label: 'متبقي ${category.shortLabel}',
-              value: ProjectCosts.formatMoney(
-                (() {
-                  final left = (_projectPlannedCosts[category.key] ?? 0) -
-                      (_otherItemsCosts[category.key] ?? 0);
-                  return left < 0 ? 0.0 : left;
-                })(),
-              ),
+              label: category.label,
+              value: '${ProjectCosts.formatMoney(current[category.key] ?? 0)}'
+                  ' / ${ProjectCosts.formatMoney(projected[category.key] ?? 0)}',
               icon: category.icon,
             ),
           AppSpacing.verticalXs,
           AppInfoRow(
-            label: 'إجمالي مخطط المشروع',
-            value: ProjectCosts.formatMoney(_projectPlannedTotal),
-            icon: Icons.business_outlined,
+            label: 'تكلفة هذا البند',
+            value: ProjectCosts.formatMoney(itemTotal),
+            icon: Icons.receipt_long_outlined,
           ),
           AppInfoRow(
-            label: 'مخصص لبقية البنود',
-            value: ProjectCosts.formatMoney(othersTotal),
-            icon: Icons.playlist_add_check,
+            label: 'إجمالي تكلفة المشروع بعد الحفظ',
+            value: ProjectCosts.formatMoney(projectedTotal),
+            icon: Icons.payments_outlined,
           ),
-          AppInfoRow(
-            label: 'المتبقي لهذا البند',
-            value: ProjectCosts.formatMoney(remaining < 0 ? 0 : remaining),
-            icon: Icons.account_balance_wallet_outlined,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDetailsSection() {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const AppSectionTitle(title: 'تفاصيل البند', icon: Icons.description_outlined),
-          AppSpacing.verticalMd,
-          AppTextField(
-            controller: _descriptionController,
-            label: 'وصف البند',
-            hint: 'أدخل وصف البند',
-            prefixIcon: Icons.description_outlined,
-            maxLines: 3,
-          ),
-          AppSpacing.verticalMd,
-          AppTextField(
-            controller: _notesController,
-            label: 'ملاحظات',
-            hint: 'أدخل الملاحظات',
-            prefixIcon: Icons.notes_outlined,
-            maxLines: 3,
+          if (projectedTotal > 0) ...[
+            AppSpacing.verticalSm,
+            AppProgress(
+              value: share,
+              label: 'حصة هذا البند من تكلفة المشروع',
+              height: 6,
+            ),
+          ],
+          AppSpacing.verticalSm,
+          Text(
+            _otherItemsCount == 0
+                ? 'لا توجد بنود أخرى في هذا المشروع بعد.'
+                : 'مجموع تكاليف $_otherItemsCount بند آخر: '
+                    '${ProjectCosts.formatMoney(sumOf(_otherItemsCosts))}',
+            style: AppTextStyles.small,
           ),
         ],
       ),
@@ -1049,7 +1239,11 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const AppSectionTitle(title: 'المعدة ومشرف البند والاستهلاك المخطط', icon: Icons.settings_outlined),
+          const AppSectionTitle(
+            title:
+                'المسؤول عن البند: مشرف البند والمعدة والاستهلاك المخطط',
+            icon: Icons.settings_outlined,
+          ),
           AppSpacing.verticalSm,
           const Text(
             'اختر المعدة من حصر المعدات، ثم مشرف البند. هذه الكميات مخططة للتكليف؛ مشرف البند يسجل الاستهلاك الفعلي لاحقًا، والمهندس يسجل كمية البند المنفذة بشكل مستقل.',
@@ -1121,7 +1315,7 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
-      title: 'تفاصيل البند',
+      title: 'تفاصيل البند والتكاليف',
       showBackButton: true,
       child: _loadingItem
           ? const AppLoading(message: 'جاري تحميل بيانات البند...')
@@ -1132,22 +1326,24 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const AppPageHeader(
-                        title: 'تفاصيل البند',
+                        title: 'تفاصيل البند والتكاليف',
                         subtitle:
-                            'ربط البند بالمعدة ومشرف البند، وتحديد التكاليف والاستهلاك المخطط',
+                            'بيانات البند، تكاليفه، تنفيذه، والمسؤول عنه (مشرف البند)',
                         icon: Icons.settings_outlined,
                       ),
                       AppSpacing.verticalLg,
-                      _buildItemInfo(),
-                      AppSpacing.verticalMd,
-                      _buildDetailsSection(),
+                      _buildItemDataSection(),
                       AppSpacing.verticalMd,
                       _buildCostsSection(),
+                      AppSpacing.verticalMd,
+                      _buildExecutionSummaryCard(),
                       AppSpacing.verticalMd,
                       _buildExecutionSection(),
                       AppSpacing.verticalLg,
                       AppButton(
-                        label: _savingAll ? 'جارٍ حفظ التفاصيل...' : 'حفظ التفاصيل وتكليف المشرف',
+                        label: _savingAll
+                            ? 'جارٍ حفظ التفاصيل...'
+                            : 'حفظ تفاصيل البند وتكاليفه',
                         icon: Icons.save_outlined,
                         loading: _savingAll,
                         expanded: true,

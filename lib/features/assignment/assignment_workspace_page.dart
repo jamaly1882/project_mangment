@@ -383,6 +383,7 @@ class AssignmentWorkspacePage extends StatelessWidget {
                                 data: itemData,
                                 detailsData: detailsData,
                                 formatNumber: formatNumber,
+                                toDouble: toDouble,
                                 supervisorMode: supervisorMode,
                                 assigneeLabel: _assigneeLabel,
                                 onTap: () {
@@ -420,6 +421,7 @@ class _AssignmentItemCard extends StatelessWidget {
   final Map<String, dynamic> data;
   final Map<String, dynamic> detailsData;
   final String Function(dynamic) formatNumber;
+  final double Function(dynamic) toDouble;
   final bool supervisorMode;
   final String assigneeLabel;
   final VoidCallback onTap;
@@ -428,6 +430,7 @@ class _AssignmentItemCard extends StatelessWidget {
     required this.data,
     required this.detailsData,
     required this.formatNumber,
+    required this.toDouble,
     required this.supervisorMode,
     required this.assigneeLabel,
     required this.onTap,
@@ -469,6 +472,21 @@ class _AssignmentItemCard extends StatelessWidget {
     final contractQuantity = formatNumber(
       data['contractQuantity'],
     );
+
+    // =========================================================
+    // متابعة التنفيذ
+    // =========================================================
+
+    final contractValue = toDouble(data['contractQuantity']);
+    final executedValue = toDouble(data['executedQuantity']);
+
+    final remainingValue = (contractValue - executedValue) < 0
+        ? 0.0
+        : (contractValue - executedValue);
+
+    final progressValue = contractValue <= 0
+        ? 0.0
+        : (executedValue / contractValue).clamp(0.0, 1.0).toDouble();
 
     // =========================================================
     // القيم الافتراضية
@@ -572,6 +590,53 @@ class _AssignmentItemCard extends StatelessWidget {
                 title: 'الكمية التعاقدية',
                 value: '$contractQuantity $unit',
                 icon: Icons.assignment,
+              ),
+
+              const SizedBox(height: 8),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: _Info(
+                      title: 'الكمية المنفذة',
+                      value:
+                          '${formatNumber(executedValue)} $unit',
+                      icon: Icons.done_all,
+                    ),
+                  ),
+                  Expanded(
+                    child: _Info(
+                      title: 'المتبقي',
+                      value:
+                          '${formatNumber(remainingValue)} $unit',
+                      icon: Icons.pending_actions,
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 10),
+
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: LinearProgressIndicator(
+                  value: progressValue,
+                  minHeight: 8,
+                  backgroundColor:
+                      Colors.blueGrey.shade100,
+                ),
+              ),
+
+              const SizedBox(height: 4),
+
+              Text(
+                'نسبة التنفيذ: '
+                '${(progressValue * 100).toStringAsFixed(1)}%',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade700,
+                ),
+                textDirection: TextDirection.rtl,
               ),
 
               if ('${detailsData['supervisorName'] ?? detailsData['driverName'] ?? ''}'

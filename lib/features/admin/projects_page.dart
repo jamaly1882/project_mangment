@@ -1,11 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/utils/costs.dart';
 import '../../core/widgets/app_widgets.dart';
-import '../../core/widgets/cost_widgets.dart';
 
 class ProjectsPage extends StatefulWidget {
   const ProjectsPage({
@@ -667,6 +667,91 @@ class _ProjectCard extends StatefulWidget {
 class _ProjectCardState
     extends State<_ProjectCard> {
   bool _expanded = false;
+  bool _recomputing = false;
+
+  // ============================================================
+  // footnote: عدد البنود وآخر تحديث للتكاليف
+  // ============================================================
+
+  String _costsFootnote(Map<String, dynamic> data) {
+    final items =
+        data['costsProjectItemCount'];
+
+    final costed =
+        data['costsItemCount'];
+
+    final updated =
+        data['costsUpdatedAt'];
+
+    final buffer = StringBuffer();
+
+    if (items is int && items > 0) {
+      buffer.write('محسوبة من $items بند');
+
+      if (costed is int) {
+        buffer.write('، ولـ $costed بند تكلفة مسجلة');
+      }
+    } else {
+      buffer.write(
+        'لا توجد بنود لهذا المشروع بعد، '
+        'أو لم تتم إعادة حساب التكاليف',
+      );
+    }
+
+    if (updated is Timestamp) {
+      final date = updated.toDate();
+
+      buffer.write(
+        ' — آخر تحديث: ${date.day.toString().padLeft(2, '0')}/'
+        '${date.month.toString().padLeft(2, '0')}/'
+        '${date.year}',
+      );
+    }
+
+    return buffer.toString();
+  }
+
+  // ============================================================
+  // إعادة حساب تكاليف المشروع من بنوده
+  // ============================================================
+
+  Future<void> _recomputeCosts() async {
+    if (_recomputing) return;
+
+    setState(() {
+      _recomputing = true;
+    });
+
+    try {
+      final totals =
+          await ProjectCostSync.applyTotals(
+        widget.projectId,
+      );
+
+      if (!mounted) return;
+
+      AppWidgets.showSuccess(
+        context,
+        totals.hasCosts
+            ? 'تمت إعادة الحساب: '
+                '${ProjectCosts.formatMoney(totals.total)}'
+            : 'لا توجد تكاليف مسجلة في بنود هذا المشروع',
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      AppWidgets.showError(
+        context,
+        'تعذرت إعادة حساب التكاليف:\n$e',
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _recomputing = false;
+        });
+      }
+    }
+  }
 
   // ============================================================
   // تنسيق التاريخ
@@ -979,10 +1064,33 @@ class _ProjectCardState
                   color: AppColors.primary,
                 ),
                 AppSpacingHorizontal.sm,
-                Text(
-                  'تكاليف المشروع',
-                  style:
-                      AppTextStyles.sectionTitle,
+                Expanded(
+                  child: Text(
+                    'تكاليف المشروع (محسوبة من البنود)',
+                    style:
+                        AppTextStyles.sectionTitle,
+                  ),
+                ),
+                IconButton(
+                  tooltip:
+                      'إعادة حساب التكاليف من البنود',
+                  onPressed:
+                      _recomputing
+                          ? null
+                          : _recomputeCosts,
+                  icon: _recomputing
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child:
+                              CircularProgressIndicator(
+                            strokeWidth:
+                                2,
+                          ),
+                        )
+                      : const Icon(
+                          Icons.refresh,
+                        ),
                 ),
               ],
             ),
@@ -1002,10 +1110,20 @@ class _ProjectCardState
 
             AppInfoRow(
               icon: Icons.calculate_outlined,
-              label: 'إجمالي التكلفة',
+              label: 'إجمالي تكلفة المشروع',
               value: ProjectCosts.formatMoney(
                 ProjectCosts.totalOf(data),
               ),
+            ),
+
+            AppSpacing.verticalXs,
+
+            Text(
+              _costsFootnote(data),
+              textAlign:
+                  TextAlign.right,
+              style:
+                  AppTextStyles.small,
             ),
 
             AppSpacing.verticalMd,
@@ -1106,14 +1224,6 @@ class _ProjectFormDialogState
   late final TextEditingController
       _durationController;
 
-  /// حقول تكاليف المشروع:
-  /// المواد، أجور العمالة، المعدات، المحروقات.
-  final Map<String, TextEditingController>
-      _costControllers = {
-    for (final category in ProjectCosts.categories)
-      category.key: TextEditingController(),
-  };
-
   DateTime? _startDate;
 
   String? _selectedGovernorateId;
@@ -1159,20 +1269,6 @@ class _ProjectFormDialogState
               '',
     );
 
-    // تعبئة حقول التكلفة عند التعديل.
-    for (final category in ProjectCosts.categories) {
-      final controller =
-          _costControllers[category.key];
-
-      if (controller == null) continue;
-
-      final value = ProjectCosts.toDouble(
-        data?[category.totalField],
-      );
-
-      controller.text =
-          ProjectCosts.toEditText(value);
-    }
 
     _selectedGovernorateId =
         data?['governorateId']?.toString();
@@ -1203,39 +1299,7 @@ class _ProjectFormDialogState
     _codeController.dispose();
     _durationController.dispose();
 
-    for (final controller in _costControllers.values) {
-      controller.dispose();
-    }
-
     super.dispose();
-  }
-
-  // ============================================================
-  // إجمالي التكاليف المحسوب تلقائيًا من الحقول
-  // ============================================================
-
-  Map<String, double> get _enteredCosts {
-    final result = <String, double>{};
-
-    for (final category in ProjectCosts.categories) {
-      result[category.key] =
-          ProjectCosts.parseOptional(
-        _costControllers[category.key]?.text ?? '',
-      ) ??
-          0;
-    }
-
-    return result;
-  }
-
-  double get _enteredCostsTotal {
-    double total = 0;
-
-    for (final value in _enteredCosts.values) {
-      total += value;
-    }
-
-    return total;
   }
 
   // ============================================================
@@ -1477,18 +1541,6 @@ class _ProjectFormDialogState
           ),
         ),
 
-        // ========================================================
-        // تكاليف المشروع:
-        // المواد + أجور العمالة + المعدات + المحروقات
-        // والإجمالي يُحسب تلقائيًا.
-        // ========================================================
-        ...ProjectCosts.buildSaveData(
-          totalTexts: {
-            for (final entry in _costControllers.entries)
-              entry.key: entry.value.text,
-          },
-          includeZeros: true,
-        ),
       };
 
       // ========================================================
@@ -1514,6 +1566,21 @@ class _ProjectFormDialogState
         debugPrint(
           'Project created: ${document.id}',
         );
+
+        // ========================================================
+        // تكاليف المشروع تُحسب من البنود،
+        // ونجهّز الوثيقة بقيم صفرية حتى تظهر في القوائم.
+        // ========================================================
+
+        try {
+          await ProjectCostSync.applyTotals(
+            document.id,
+          );
+        } catch (e) {
+          debugPrint(
+            'تعذر تهيئة تكاليف المشروع: $e',
+          );
+        }
       }
 
       // ========================================================
@@ -1987,37 +2054,32 @@ class _ProjectFormDialogState
           AppSpacing.verticalLg,
 
           // ========================================================
-          // تكاليف المشروع
+          // ملاحظة التكاليف: لا إدخال يدوي هنا.
           // ========================================================
 
-          const AppSectionTitle(
-            title: 'تكاليف المشروع',
-            icon: Icons.payments_outlined,
+          AppCard(
+            color: AppColors.background,
+            child: Row(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: const [
+                Icon(
+                  Icons.payments_outlined,
+                  size: 20,
+                  color: AppColors.info,
+                ),
+                AppSpacingHorizontal.sm,
+                Expanded(
+                  child: Text(
+                    'تكاليف المشروع (المواد، أجور العمالة، المعدات، '
+                    'المحروقات) لا تُدخل هنا؛ تُحسب تلقائيًا من '
+                    'صفحة تفاصيل كل بند وتُجمّع في هذا المشروع.',
+                    style: AppTextStyles.bodySecondary,
+                  ),
+                ),
+              ],
+            ),
           ),
-
-          AppSpacing.verticalSm,
-
-          const Text(
-            'هذه الحقول اختيارية. إجمالي التكلفة يُحسب تلقائيًا '
-            'من مجموع المواد وأجور العمالة والمعدات والمحروقات.',
-            style: AppTextStyles.bodySecondary,
-          ),
-
-          AppSpacing.verticalMd,
-
-          CostFieldsEditor(
-            controllers: _costControllers,
-            enabled: !_loading,
-            onChanged: () {
-              if (mounted) {
-                setState(() {});
-              }
-            },
-          ),
-
-          AppSpacing.verticalMd,
-
-          _buildCostsTotalCard(),
 
           AppSpacing.verticalLg,
 
@@ -2074,77 +2136,6 @@ class _ProjectFormDialogState
                             ? 'حفظ التعديلات'
                             : 'إضافة المشروع',
                   ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // بطاقة الإجمالي التلقائي
-  // ============================================================
-
-  Widget _buildCostsTotalCard() {
-    final total = _enteredCostsTotal;
-
-    return AppCard(
-      color: AppColors.background,
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.stretch,
-        children: [
-          for (final category in ProjectCosts.categories)
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                vertical: 3,
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    category.icon,
-                    size: 16,
-                    color: AppColors.textSecondary,
-                  ),
-                  AppSpacingHorizontal.sm,
-                  Expanded(
-                    child: Text(
-                      category.shortLabel,
-                      style:
-                          AppTextStyles.bodySecondary,
-                    ),
-                  ),
-                  Text(
-                    ProjectCosts.formatMoney(
-                      _enteredCosts[category.key] ?? 0,
-                    ),
-                    style: AppTextStyles.body.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          AppSpacing.verticalSm,
-          const Divider(),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'إجمالي تكلفة المشروع',
-                  style: AppTextStyles.body.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              Text(
-                ProjectCosts.formatMoney(total),
-                style: AppTextStyles.body.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.primary,
-                  fontSize: 16,
                 ),
               ),
             ],

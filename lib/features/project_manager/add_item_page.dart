@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/utils/costs.dart';
@@ -830,6 +831,13 @@ class _AddItemPageState extends State<AddItemPage> {
 
       await itemRef.set(itemData);
 
+      // البند الجديد بلا تكاليف بعد، لكن نحدّث مجاميع المشروع.
+      try {
+        await ProjectCostSync.applyTotals(widget.projectId);
+      } catch (e) {
+        debugPrint('تعذرت مزامنة تكاليف المشروع: $e');
+      }
+
       if (!mounted) return;
 
       AppWidgets.showSuccess(
@@ -928,7 +936,7 @@ class _AddItemPageState extends State<AddItemPage> {
                     if (_projectPlannedTotal > 0) ...[
                       const Divider(height: 24),
                       AppInfoRow(
-                        label: 'إجمالي تكلفة المشروع المخططة',
+                        label: 'إجمالي تكلفة المشروع (محسوبة من البنود)',
                         value: ProjectCosts.formatMoney(
                           _projectPlannedTotal,
                         ),
@@ -1174,7 +1182,7 @@ class _AddItemPageState extends State<AddItemPage> {
                     if (_projectPlannedTotal > 0) ...[
                       AppSpacing.verticalMd,
                       Text(
-                        'المتبقي من مخطط المشروع: '
+                        'إجمالي تكلفة المشروع حتى الآن: '
                         '${ProjectCosts.formatMoney(_projectPlannedTotal)}',
                         style: AppTextStyles.body.copyWith(
                           fontWeight: FontWeight.bold,

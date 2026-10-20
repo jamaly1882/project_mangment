@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/utils/costs.dart';
@@ -482,6 +483,13 @@ class ItemsPage extends StatelessWidget {
           transaction.update(ref, updates);
         },
       );
+
+      // تحديث تكاليف المشروع (تكلفة المنفذ تعتمد على الكميات).
+      try {
+        await ProjectCostSync.applyTotals(projectId);
+      } catch (e) {
+        debugPrint('تعذرت مزامنة تكاليف المشروع: $e');
+      }
 
       if (!context.mounted) {
         return;
