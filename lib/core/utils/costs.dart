@@ -9,13 +9,17 @@ import '../theme/app_colors.dart';
 /// يمثل قسمًا واحدًا من أقسام التكلفة الأربعة:
 /// المواد، أجور العمالة، المعدات، المحروقات.
 ///
-/// - [totalField]: اسم الحقل الذي يحفظ الإجمالي في Firestore.
-/// - [unitField]: اسم الحقل الذي يحفظ تكلفة الوحدة (يُستخدم في البنود).
+/// - [totalField]: اسم حقل الإجمالي المخطط في Firestore.
+/// - [unitField]: اسم حقل تكلفة الوحدة (يُستخدم في البنود).
+/// - [actualField]: اسم حقل الإجمالي الفعلي الذي يسجله مشرف البند.
+/// - [actualUnitField]: اسم حقل تكلفة الوحدة الفعلية.
 class CostCategory {
   const CostCategory({
     required this.key,
     required this.totalField,
     required this.unitField,
+    required this.actualField,
+    required this.actualUnitField,
     required this.label,
     required this.shortLabel,
     required this.icon,
@@ -29,6 +33,12 @@ class CostCategory {
 
   /// مثال: materialsUnitCost
   final String unitField;
+
+  /// مثال: materialsActualCost (ما يسجله مشرف البند كتكلفة فعلية).
+  final String actualField;
+
+  /// مثال: materialsActualUnitCost
+  final String actualUnitField;
 
   final String label;
 
@@ -63,6 +73,16 @@ class ProjectCosts {
 
   static const String executedCostField = 'executedCost';
 
+  /// إجمالي التكاليف الفعلية التي سجلها مشرف البند.
+  static const String actualTotalField = 'actualTotalCost';
+
+  /// الإجمالي المعتمد: الفعلي إن وُجد، وإلا المخطط.
+  static const String effectiveTotalField = 'effectiveTotalCost';
+
+  /// من أدخل التكاليف الفعلية ومتى.
+  static const String actualByField = 'actualCostsBy';
+  static const String actualAtField = 'actualCostsUpdatedAt';
+
   /// العملة المستخدمة في العرض.
   static const String currency = 'ريال';
 
@@ -75,6 +95,8 @@ class ProjectCosts {
       key: 'materials',
       totalField: 'materialsCost',
       unitField: 'materialsUnitCost',
+      actualField: 'materialsActualCost',
+      actualUnitField: 'materialsActualUnitCost',
       label: 'تكلفة المواد',
       shortLabel: 'المواد',
       icon: Icons.inventory_2_outlined,
@@ -84,6 +106,8 @@ class ProjectCosts {
       key: 'labor',
       totalField: 'laborCost',
       unitField: 'laborUnitCost',
+      actualField: 'laborActualCost',
+      actualUnitField: 'laborActualUnitCost',
       label: 'تكلفة أجور العمالة',
       shortLabel: 'أجور العمالة',
       icon: Icons.engineering_outlined,
@@ -93,6 +117,8 @@ class ProjectCosts {
       key: 'equipment',
       totalField: 'equipmentCost',
       unitField: 'equipmentUnitCost',
+      actualField: 'equipmentActualCost',
+      actualUnitField: 'equipmentActualUnitCost',
       label: 'تكلفة المعدات',
       shortLabel: 'المعدات',
       icon: Icons.precision_manufacturing_outlined,
@@ -102,12 +128,23 @@ class ProjectCosts {
       key: 'fuel',
       totalField: 'fuelCost',
       unitField: 'fuelUnitCost',
+      actualField: 'fuelActualCost',
+      actualUnitField: 'fuelActualUnitCost',
       label: 'تكلفة المحروقات',
       shortLabel: 'المحروقات',
       icon: Icons.local_gas_station_outlined,
       color: AppColors.driver,
     ),
   ];
+
+  /// إرجاع قسم التكلفة بمفتاحه (materials / labor / ...).
+  static CostCategory? categoryByKey(String key) {
+    for (final category in categories) {
+      if (category.key == key) return category;
+    }
+
+    return null;
+  }
 
   // ==========================================================
   // قراءة الأرقام
@@ -304,6 +341,141 @@ class ProjectCosts {
     }
 
     data[totalField] = total < 0 ? 0 : total;
+
+    return data;
+  }
+
+  // ==========================================================
+  // التكاليف الفعلية (يسجلها مشرف البند)
+  // ==========================================================
+
+  /// خريطة الأقسام الفعلية لبند أو مشروع.
+  static Map<String, double> actualBreakdownOf(
+    Map<String, dynamic>? data,
+  ) {
+    final result = <String, double>{};
+
+    for (final category in categories) {
+      result[category.key] =
+          data == null ? 0 : nonNegative(data[category.actualField]);
+    }
+
+    return result;
+  }
+
+  /// إجمالي التكلفة الفعلية المسجلة (مجموع أقسامها).
+  static double actualTotalOf(Map<String, dynamic>? data) {
+    if (data == null) return 0;
+
+    double sum = 0;
+
+    for (final category in categories) {
+      sum += nonNegative(data[category.actualField]);
+    }
+
+    return sum;
+  }
+
+  /// هل سجل المشرف أي تكلفة فعلية لهذا البند؟
+  static bool hasActualValues(Map<String, dynamic>? data) {
+    if (data == null) return false;
+
+    for (final category in categories) {
+      if (nonNegative(data[category.actualField]) > 0) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /// لكل قسم: القيمة الفعلية إن وُجدت، وإلا القيمة المخططة.
+  static Map<String, double> effectiveBreakdownOf(
+    Map<String, dynamic>? data,
+  ) {
+    final result = <String, double>{};
+
+    if (data == null) {
+      for (final category in categories) {
+        result[category.key] = 0;
+      }
+
+      return result;
+    }
+
+    for (final category in categories) {
+      final actual = nonNegative(data[category.actualField]);
+
+      result[category.key] = actual > 0
+          ? actual
+          : nonNegative(data[category.totalField]);
+    }
+
+    return result;
+  }
+
+  /// الإجمالي المعتمد (الفعلي عند توفره، وإلا المخطط).
+  static double effectiveTotalOf(Map<String, dynamic>? data) {
+    double sum = 0;
+
+    for (final value in effectiveBreakdownOf(data).values) {
+      sum += value;
+    }
+
+    return sum;
+  }
+
+  /// بيانات حفظ التكاليف الفعلية، بنفس منطق [buildSaveData]:
+  /// الإجمالي = تكلفة الوحدة × الكمية، ما لم يُدخل المشرف إجماليًا يدويًا.
+  static Map<String, dynamic> buildActualSaveData({
+    required Map<String, String> totalTexts,
+    Map<String, String>? unitTexts,
+    double quantity = 0,
+    bool includeZeros = false,
+  }) {
+    final data = <String, dynamic>{};
+
+    double total = 0;
+
+    for (final category in categories) {
+      double? unitValue;
+
+      if (unitTexts != null) {
+        final parsed =
+            parseOptional(unitTexts[category.key] ?? '');
+        unitValue = parsed == null ? null : (parsed < 0 ? 0 : parsed);
+      }
+
+      double? value =
+          parseOptional(totalTexts[category.key] ?? '');
+
+      if (value == null && unitValue != null) {
+        value = quantity > 0 ? unitValue * quantity : 0;
+      }
+
+      if (value == null) {
+        if (includeZeros) {
+          data[category.actualField] = 0;
+
+          if (unitTexts != null) {
+            data[category.actualUnitField] = 0;
+          }
+        }
+
+        continue;
+      }
+
+      final double stored = value < 0 ? 0 : value;
+
+      data[category.actualField] = stored;
+      total += stored;
+
+      if (unitTexts != null) {
+        data[category.actualUnitField] = unitValue ?? 0;
+      }
+    }
+
+    data[actualTotalField] = total < 0 ? 0 : total;
 
     return data;
   }

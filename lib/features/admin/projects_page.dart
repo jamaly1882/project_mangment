@@ -711,6 +711,24 @@ class _ProjectCardState
     return buffer.toString();
   }
 
+  /// سطر قسم واحد في بطاقة المشروع: المخطط، ومع الفعلي إن وُجد.
+  String _costsCategoryValue(
+    Map<String, dynamic> data,
+    CostCategory category,
+  ) {
+    final planned =
+        ProjectCosts.nonNegative(data[category.totalField]);
+    final actual =
+        ProjectCosts.nonNegative(data[category.actualField]);
+
+    final plannedText = ProjectCosts.formatMoney(planned);
+
+    if (actual <= 0) return plannedText;
+
+    return 'فعلي ${ProjectCosts.formatMoney(actual)} '
+        '/ مخطط $plannedText';
+  }
+
   // ============================================================
   // إعادة حساب تكاليف المشروع من بنوده
   // ============================================================
@@ -1101,20 +1119,34 @@ class _ProjectCardState
               AppInfoRow(
                 icon: category.icon,
                 label: category.label,
-                value: ProjectCosts.formatMoney(
-                  ProjectCosts.nonNegative(
-                    data[category.totalField],
-                  ),
-                ),
+                value: _costsCategoryValue(data, category),
               ),
 
             AppInfoRow(
               icon: Icons.calculate_outlined,
-              label: 'إجمالي تكلفة المشروع',
+              label: 'إجمالي تكلفة المشروع المخطط',
               value: ProjectCosts.formatMoney(
                 ProjectCosts.totalOf(data),
               ),
             ),
+
+            if (ProjectCosts.actualTotalOf(data) > 0)
+              AppInfoRow(
+                icon: Icons.check_circle_outline,
+                label: 'الإجمالي الفعلي المسجل في البنود',
+                value: ProjectCosts.formatMoney(
+                  ProjectCosts.actualTotalOf(data),
+                ),
+              ),
+
+            if (ProjectCosts.actualTotalOf(data) > 0)
+              AppInfoRow(
+                icon: Icons.payments_outlined,
+                label: 'إجمالي تكلفة المشروع المعتمد',
+                value: ProjectCosts.formatMoney(
+                  ProjectCosts.effectiveTotalOf(data),
+                ),
+              ),
 
             AppSpacing.verticalXs,
 

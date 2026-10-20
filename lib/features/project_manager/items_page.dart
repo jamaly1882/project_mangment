@@ -1007,11 +1007,15 @@ class _ItemCard extends StatelessWidget {
                   ProjectCosts.nonNegative(
                 data[ProjectCosts.executedCostField],
               );
+              final actualCost =
+                  ProjectCosts.actualTotalOf(data);
               final supervisorName =
                   data['supervisorName']?.toString() ??
                       '';
 
-              if (totalCost <= 0 && supervisorName.isEmpty) {
+              if (totalCost <= 0 &&
+                  actualCost <= 0 &&
+                  supervisorName.isEmpty) {
                 return const SizedBox.shrink();
               }
 
@@ -1040,6 +1044,15 @@ class _ItemCard extends StatelessWidget {
                         label: 'تكلفة المنفذ',
                         value:
                             ProjectCosts.formatMoney(executedCost),
+                      ),
+                    ],
+                    if (actualCost > 0) ...[
+                      AppSpacing.verticalXs,
+                      AppInfoRow(
+                        icon: Icons.check_circle_outline,
+                        label: 'التكلفة الفعلية للمشرف',
+                        value:
+                            ProjectCosts.formatMoney(actualCost),
                       ),
                     ],
                     if (supervisorName.isNotEmpty) ...[

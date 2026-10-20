@@ -394,7 +394,6 @@ class AssignmentWorkspacePage extends StatelessWidget {
                                           AssignmentDetailsPage(
                                         projectId: itemProjectId,
                                         itemId: itemId,
-                                        supervisorMode: supervisorMode,
                                       ),
                                     ),
                                   );

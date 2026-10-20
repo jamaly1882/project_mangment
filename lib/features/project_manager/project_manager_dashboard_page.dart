@@ -369,17 +369,32 @@ class ProjectManagerDashboardPage extends StatelessWidget {
             snapshot.data ?? ProjectCostTotals.empty();
 
         final storedTotal = ProjectCosts.totalOf(project);
-        final displayTotal =
-            snapshot.hasData ? totals.total : storedTotal;
+
+        final plannedTotal = snapshot.hasData
+            ? totals.total
+            : storedTotal;
+
+        // الإجمالي المعروض: الفعلي عند توفره، وإلا المخطط.
+        final displayTotal = snapshot.hasData
+            ? totals.displayTotal
+            : storedTotal;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             CostSummaryCard(
-              title: 'تكاليف المشروع — محسوبة من بنوده',
-              breakdown: snapshot.hasData
+              title: totals.hasActual
+                  ? 'تكاليف المشروع — الفعلي مقابل المخطط'
+                  : 'تكاليف المشروع — محسوبة من بنوده',
+              breakdown: !snapshot.hasData
+                  ? ProjectCosts.breakdownOf(project)
+                  : (totals.hasActual
+                      ? totals.actualBreakdown
+                      : totals.breakdown),
+              reference: snapshot.hasData && totals.hasActual
                   ? totals.breakdown
-                  : ProjectCosts.breakdownOf(project),
+                  : null,
+              referenceLabel: 'المخطط',
               total: displayTotal,
               icon: Icons.payments_outlined,
             ),
@@ -396,26 +411,45 @@ class ProjectManagerDashboardPage extends StatelessWidget {
                     icon: Icons.list_alt,
                     label: 'بنود المشروع',
                     value: snapshot.hasData
-                        ? '${totals.itemCount} بند، ولـ '
-                            '${totals.costedItemCount} بند '
-                            'تكلفته مسجلة'
+                        ? '${totals.itemCount} بند، '
+                            '${totals.costedItemCount} له تكلفة '
+                            'مخططة، و${totals.actualItemCount} '
+                            'له تكلفة فعلية'
                         : 'جاري الحساب...',
                   ),
 
                   AppSpacing.verticalXs,
 
                   AppInfoRow(
+                    icon: Icons.timeline_outlined,
+                    label: 'الإجمالي المخطط (إدخال مدير المشروع)',
+                    value: ProjectCosts.formatMoney(plannedTotal),
+                  ),
+
+                  AppSpacing.verticalXs,
+
+                  AppInfoRow(
+                    icon: Icons.check_circle_outline,
+                    label: 'الإجمالي الفعلي (تسجيل مشرف البند)',
+                    value: ProjectCosts.formatMoney(
+                      totals.actualTotal,
+                    ),
+                  ),
+
+                  AppSpacing.verticalXs,
+
+                  AppInfoRow(
                     icon: Icons.calculate_outlined,
-                    label: 'إجمالي تكلفة المشروع',
+                    label: 'إجمالي تكلفة المشروع المعتمد',
                     value: ProjectCosts.formatMoney(displayTotal),
                   ),
 
                   AppSpacing.verticalSm,
 
                   const Text(
-                    'لا تُدخل تكاليف المشروع يدويًا؛ كل بند يضيف '
-                    'تكاليف مواده وأجور عمالته ومعداته ومحروقاته من '
-                    'صفحة تفاصيل البند، ثم تُجمّع هنا تلقائيًا.',
+                    'لا تُدخل تكاليف المشروع يدويًا: المخطط يدخله '
+                    'مدير المشروع من صفحة تفاصيل البند، والفعلي يسجله '
+                    'مشرف البند من صفحته، ويُعتمد الفعلي عند توفره.',
                     style: AppTextStyles.bodySecondary,
                   ),
                 ],

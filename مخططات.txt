@@ -176,9 +176,26 @@ LoginPage
 مشرف البند (Supervisor)
 │
 ├── تسجيل الدخول باسم المستخدم → SupervisorPage
-├── البنود المسندة إليه من item_supervisors
-└── تسجيل الاستهلاك الفعلي → item_details
-      consumedFuelQuantity / consumedOilQuantity / executedWorkingHours
+│     (بطاقة البند تعرض: التعاقدية + المنفذة + المتبقي + نسبة التنفيذ)
+├── البنود المسندة إليه من item_supervisors (+ fallback لسجلات item_drivers القديمة)
+└── صفحة البند عنده = AssignmentDetailsPage (مشرف البند فقط)
+      ├── 1) الاستهلاك الفعلي → item_details
+      │     consumedFuelQuantity / consumedOilQuantity / executedWorkingHours
+      │     + علامات تجاوز المخطط (fuelExceededPlanned / ...)
+      ├── 2) التكاليف الفعلية للبند = نفس الأقسام الأربعة التي يدخلها المدير
+      │     materialsActualCost / laborActualCost /
+      │     equipmentActualCost / fuelActualCost  (+ *ActualUnitCost)
+      │     الإجمالي = تكلفة الوحدة × الكمية (المنفذة وإلا التعاقدية)
+      │     أو يدخله المشرف يدويًا
+      │     actualTotalCost = مجموع الأقسام
+      └── بعد الحفظ: ProjectCostSync.applyTotals(projectId)
+
+      حسابات أدوار التكلفة:
+      • مخطط (planned)  = إدخال مدير المشروع  → materialsCost ... totalCost
+      • فعلي (actual)   = إدخال مشرف البند     → materialsActualCost ... actualTotalCost
+      • معتمد (effective) = الفعلي للقسم إن وُجد وإلا المخطط → effectiveTotalCost
+      صفحة المشروع ولوحة مدير_project يعرضون المخطط مقابل الفعلي،
+      والإجمالي المعروض هو المعتمد.
 
 تحديث: تكاليف المشروع مجمّعة من البنود
 ===================================================
@@ -208,5 +225,10 @@ LoginPage
   ولا تُدخل يدويًا أبدًا.
 • في البند: تكلفة الوحدة + إجمالي متوقع، ويُحسب executedCost =
   مجموع تكلفة الوحدة × الكمية المنفذة عند إضافة كمية.
-• السائق (driver) بقي مدعومًا للقراءة فقط من السجلات القديمة
-  item_drivers / item_supervisors يسجّل للمشرفين الجدد.
+• دور السائق مغلق في التطبيق: صفحة DriverPage تعرض رسالة فقط تطلب من
+  مسؤول النظام تحويل الحساب إلى «مشرف بند» من صفحة المستخدمين، وبعدها
+  تظهر لنفس المستخدم البنود المسندة قديمًا عبر item_drivers.
+• item_supervisors يسجّل للمشرفين، والسجلات القديمة تُعطَّل (active=false)
+  عند حفظ الإسناد الجديد.
+• AssignmentWorkspacePage يبقي مفتاح supervisorMode لقراءة اللوحات القديمة
+  فقط، أما صفحة التفاصيل فمشرف البند حصرًا.

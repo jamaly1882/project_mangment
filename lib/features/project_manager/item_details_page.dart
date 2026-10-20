@@ -98,6 +98,9 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   Map<String, double> _otherItemsCosts = <String, double>{};
   int _otherItemsCount = 0;
 
+  /// التكاليف الفعلية لبقية بنود المشروع (ما يسجله مشرفو البنود).
+  Map<String, double> _otherItemsEffective = <String, double>{};
+
   static const List<String> _fuelTypes = ['ديزل', 'بترول'];
 
   CollectionReference<Map<String, dynamic>> get _equipmentCollection =>
@@ -355,6 +358,10 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       };
       var otherCount = 0;
 
+      final otherEffectiveSums = <String, double>{
+        for (final category in ProjectCosts.categories) category.key: 0.0,
+      };
+
       try {
         final itemsSnapshot = await _firestore
             .collection('items')
@@ -372,6 +379,14 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
             otherCosts[entry.key] =
                 (otherCosts[entry.key] ?? 0) + entry.value;
           }
+
+          final otherEffective =
+              ProjectCosts.effectiveBreakdownOf(doc.data());
+
+          for (final entry in otherEffective.entries) {
+            otherEffectiveSums[entry.key] =
+                (otherEffectiveSums[entry.key] ?? 0) + entry.value;
+          }
         }
       } catch (e) {
         debugPrint('تعذر حساب تكاليف بقية البنود: $e');
@@ -382,6 +397,7 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         _itemData = itemData;
         _projectName = projectName;
         _otherItemsCosts = otherCosts;
+        _otherItemsEffective = otherEffectiveSums;
         _otherItemsCount = otherCount;
         _loadingItem = false;
       });
@@ -1180,6 +1196,22 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
 
     final projectedTotal = sumOf(projected);
     final itemTotal = sumOf(current);
+
+    // التكاليف الفعلية التي سجلها مشرف هذا البند.
+    final actual = ProjectCosts.actualBreakdownOf(_itemData);
+    final actualTotal = sumOf(actual);
+
+    // الإجمالي المعتمد للمشروع: الفعلي لقسم البند إن وُجد وإلا المخطط.
+    final projectedEffective = <String, double>{
+      for (final category in ProjectCosts.categories)
+        category.key:
+            (actual[category.key] ?? 0) > 0
+                ? (actual[category.key] ?? 0)
+                : (current[category.key] ?? 0) +
+                    (_otherItemsEffective[category.key] ?? 0),
+    };
+
+    final effectiveTotal = sumOf(projectedEffective);
     final share = projectedTotal <= 0
         ? 0.0
         : (itemTotal / projectedTotal).clamp(0.0, 1.0).toDouble();
@@ -1209,10 +1241,42 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
             icon: Icons.receipt_long_outlined,
           ),
           AppInfoRow(
-            label: 'إجمالي تكلفة المشروع بعد الحفظ',
+            label: 'إجمالي تكلفة المشروع المخطط بعد الحفظ',
             value: ProjectCosts.formatMoney(projectedTotal),
             icon: Icons.payments_outlined,
           ),
+          if (effectiveTotal > 0 && effectiveTotal != projectedTotal) ...[
+            AppSpacing.verticalXs,
+            AppInfoRow(
+              label: 'الإجمالي المعتمد (الفعلي عند توفره)',
+              value: ProjectCosts.formatMoney(effectiveTotal),
+              icon: Icons.swap_horiz,
+            ),
+          ],
+          if (actualTotal > 0) ...[
+            AppSpacing.verticalXs,
+            AppInfoRow(
+              label: 'التكلفة الفعلية التي سجلها مشرف البند',
+              value: ProjectCosts.formatMoney(actualTotal),
+              icon: Icons.check_circle_outline,
+            ),
+            AppSpacing.verticalXs,
+            Text(
+              actualTotal > itemTotal
+                  ? 'أعلى من مخططك بفارق '
+                      '${ProjectCosts.formatMoney(actualTotal - itemTotal)}'
+                  : 'أقل من مخططك بفارق '
+                      '${ProjectCosts.formatMoney(itemTotal - actualTotal)}',
+              style: AppTextStyles.small,
+            ),
+          ] else ...[
+            AppSpacing.verticalXs,
+            const Text(
+              'لم يسجل مشرف هذا البند تكاليف فعلية بعد؛ '
+              'يدخلها من صفحته (المواد والعمالة والمعدات والمحروقات).',
+              style: AppTextStyles.small,
+            ),
+          ],
           if (projectedTotal > 0) ...[
             AppSpacing.verticalSm,
             AppProgress(
