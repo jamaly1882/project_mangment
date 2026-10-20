@@ -1,0 +1,91 @@
+name: azal
+description: "A new Flutter project."
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Firebase
+  firebase_core: ^3.13.0
+  cloud_firestore: ^5.6.12
+  firebase_database: ^11.3.10
+  firebase_auth: ^5.3.4
+  firebase_storage: ^12.4.10
+  cloud_functions: ^5.3.1
+
+
+
+  # Image & file picking
+  image_picker: ^1.1.2
+  file_picker: ^8.1.7
+
+  # Local storage
+  sembast: ^3.2.2
+  sembast_web: ^2.4.2
+  sqflite: ^2.2.8+5
+  sqflite_common_ffi: ^2.0.2
+  path: ^1.8.3
+  path_provider: ^2.0.15
+
+  # Utilities
+  shared_preferences: ^2.2.1
+  collection: ^1.18.2
+  http: ^1.1.1
+  internet_connection_checker: ^3.0.1
+  permission_handler: ^11.2.0
+  speech_to_text: ^7.3.0
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  uuid: ^4.5.1
+  crypto: ^3.0.2
+
+  # Audio recording & playback
+  flutter_sound: ^9.3.10
+
+  # Scroll / auto-scroll
+  scrollable_positioned_list: ^0.3.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_launcher_icons: ^0.14.4
+  change_app_package_name: ^1.1.0
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/network.png"
+  remove_alpha_ios: true
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/icon/
+    - assets/fonts/
+
+  fonts:
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto-Regular.ttf
+        - asset: assets/fonts/Roboto-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Roboto-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Roboto-Italic.ttf
+          style: italic
+
+    - family: NotoKufiArabic
+      fonts:
+        - asset: assets/fonts/NotoKufiArabic-Regular.ttf
+        - asset: assets/fonts/NotoKufiArabic-Bold.ttf
+          weight: 700
