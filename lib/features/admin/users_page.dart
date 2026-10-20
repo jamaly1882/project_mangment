@@ -9,7 +9,13 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_widgets.dart';
 
 class UsersPage extends StatefulWidget {
-  const UsersPage({super.key});
+  const UsersPage({
+    super.key,
+    this.initialSupervisor = false,
+  });
+
+  /// فتح الصفحة على تبويب المشرفين مباشرة.
+  final bool initialSupervisor;
 
   @override
   State<UsersPage> createState() => _UsersPageState();
@@ -53,6 +59,7 @@ class _UsersPageState extends State<UsersPage>
     super.initState();
 
     _tabController = TabController(
+      initialIndex: widget.initialSupervisor ? 1 : 0,
       length: 2,
       vsync: this,
     );
@@ -115,7 +122,7 @@ class _UsersPageState extends State<UsersPage>
   String get _currentRole {
     return _tabController.index == 0
         ? 'engineer'
-        : 'driver';
+        : 'supervisor';
   }
 
   bool get _currentIsEngineer {
@@ -246,7 +253,7 @@ class _UsersPageState extends State<UsersPage>
                       child: Icon(
                         isEngineer
                             ? Icons.engineering
-                            : Icons.local_shipping,
+                            : Icons.supervisor_account,
                         color:
                             AppColors.primary,
                       ),
@@ -256,7 +263,7 @@ class _UsersPageState extends State<UsersPage>
                       child: Text(
                         isEngineer
                             ? 'إضافة مهندس'
-                            : 'إضافة سائق',
+                            : 'إضافة مشرف',
                         style:
                             AppTextStyles
                                 .sectionTitle,
@@ -641,7 +648,7 @@ class _UsersPageState extends State<UsersPage>
                   AppButton(
                     text: isEngineer
                         ? 'إنشاء المهندس'
-                        : 'إنشاء السائق',
+                        : 'إنشاء المشرف',
                     icon:
                         Icons.person_add,
                     loading: loading,
@@ -801,7 +808,7 @@ class _UsersPageState extends State<UsersPage>
                                     context,
                                     isEngineer
                                         ? 'تم إنشاء المهندس بنجاح'
-                                        : 'تم إنشاء السائق بنجاح',
+                                        : 'تم إنشاء المشرف بنجاح',
                                   );
                                 } on FirebaseAuthException catch (e) {
                                   String message =
@@ -1350,7 +1357,7 @@ class _UsersPageState extends State<UsersPage>
           tooltip:
               _currentIsEngineer
                   ? 'إضافة مهندس'
-                  : 'إضافة سائق',
+                  : 'إضافة مشرف',
           onPressed:
               _addCurrentUser,
           icon: const Icon(
@@ -1387,7 +1394,7 @@ class _UsersPageState extends State<UsersPage>
             label: Text(
               isEngineer
                   ? 'إضافة مهندس'
-                  : 'إضافة سائق',
+                  : 'إضافة مشرف',
             ),
           );
         },
@@ -1412,7 +1419,7 @@ class _UsersPageState extends State<UsersPage>
               title:
                   'إدارة المستخدمين',
               subtitle:
-                  'إدارة المهندسين والسائقين وحسابات الدخول',
+                  'إدارة المهندسين والمشرفين وحسابات الدخول',
               icon:
                   Icons.people,
             ),
@@ -1466,10 +1473,10 @@ class _UsersPageState extends State<UsersPage>
                   ),
                   Tab(
                     icon: Icon(
-                      Icons.local_shipping,
+                      Icons.supervisor_account,
                     ),
                     text:
-                        'السائقون',
+                        'المشرفون',
                   ),
                 ],
               ),
@@ -1492,7 +1499,7 @@ class _UsersPageState extends State<UsersPage>
                   ),
                   _buildUsersList(
                     role:
-                        'driver',
+                        'supervisor',
                   ),
                 ],
               ),
@@ -1568,7 +1575,7 @@ class _UserCard extends StatelessWidget {
     final roleColor =
         isEngineer
             ? AppColors.engineer
-            : AppColors.driver;
+            : AppColors.supervisor;
 
     return AppCard(
       padding:
@@ -1598,7 +1605,7 @@ class _UserCard extends StatelessWidget {
             child: Icon(
               isEngineer
                   ? Icons.engineering
-                  : Icons.local_shipping,
+                  : Icons.supervisor_account,
               color:
                   roleColor,
               size: 28,
@@ -1863,7 +1870,7 @@ class _EmptyUsersView
                   ? Icons.search_off
                   : isEngineer
                       ? Icons.engineering
-                      : Icons.local_shipping,
+                      : Icons.supervisor_account,
               size: 80,
               color:
                   AppColors.textLight,
@@ -1876,7 +1883,7 @@ class _EmptyUsersView
                   ? 'لا توجد نتائج'
                   : isEngineer
                       ? 'لا يوجد مهندسون'
-                      : 'لا يوجد سائقون',
+                      : 'لا يوجد مشرفون',
               style:
                   AppTextStyles
                       .sectionTitle,
@@ -1891,7 +1898,7 @@ class _EmptyUsersView
                   ? 'لم يتم العثور على مستخدم مطابق للبحث'
                   : isEngineer
                       ? 'يمكنك إضافة أول مهندس من الزر أدناه'
-                      : 'يمكنك إضافة أول سائق من الزر أدناه',
+                      : 'يمكنك إضافة أول مشرف بنود من الزر أدناه',
               style:
                   AppTextStyles
                       .bodySecondary,
@@ -1905,7 +1912,7 @@ class _EmptyUsersView
                 text:
                     isEngineer
                         ? 'إضافة مهندس'
-                        : 'إضافة سائق',
+                        : 'إضافة مشرف',
                 icon:
                     Icons.person_add,
                 onPressed:

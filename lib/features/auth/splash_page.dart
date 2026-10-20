@@ -9,6 +9,7 @@ import '../admin/admin_page.dart';
 import '../project_manager/project_manager_dashboard_page.dart';
 import '../engineer/engineer_page.dart';
 import '../driver/driver_page.dart';
+import '../supervisor/supervisor_page.dart';
 import '../accountant/accountant_page.dart';
 
 class SplashPage extends StatefulWidget {
@@ -143,9 +144,19 @@ class _SplashPageState extends State<SplashPage> {
           );
           return;
 
+        case 'supervisor':
         case 'driver':
+          final List<String> projectIds =
+              (data['projectIds'] as List?)
+                      ?.map((e) => e.toString().trim())
+                      .where((e) => e.isNotEmpty)
+                      .toList() ??
+                  <String>[];
+
           _go(
-            const DriverPage(),
+            role == 'supervisor'
+                ? SupervisorPage(projectIds: projectIds)
+                : DriverPage(projectIds: projectIds),
           );
           return;
 

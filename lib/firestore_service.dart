@@ -13,6 +13,19 @@ class FirestoreService {
   CollectionReference tableCamaRef() => _db.collection('table_cama');
   CollectionReference anjazeCamaRef() => _db.collection('anjaze_cama');
 
+  // ===== Collections المستخدمة في النظام الحديث =====
+  CollectionReference projectsRef() => _db.collection('projects');
+  CollectionReference usersRef() => _db.collection('users');
+  CollectionReference itemsRef() => _db.collection('items');
+  CollectionReference itemDetailsRef() => _db.collection('item_details');
+
+  /// إسناد البنود إلى مشرفي البنود ( بدل السائق ).
+  CollectionReference itemSupervisorsRef() =>
+      _db.collection('item_supervisors');
+
+  /// السجل القديم لإسناد البنود إلى السائقين.
+  CollectionReference itemDriversRef() => _db.collection('item_drivers');
+
   // ===== CRUD for Mahfth =====
   Future<void> addMahfth(Map<String, dynamic> data) => mahfthRef().add(data);
 

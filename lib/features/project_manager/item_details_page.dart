@@ -4,9 +4,14 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
+import '../../core/utils/costs.dart';
 import '../../core/widgets/app_widgets.dart';
 
-/// تفاصيل بند المشروع: اختيار المعدة والسائق وتحديد الاستهلاك المخطط.
+/// تفاصيل بند المشروع: اختيار المعدة ومشرف البند وتحديد الاستهلاك المخطط
+/// وتكاليف البند (المواد، أجور العمالة، المعدات، المحروقات).
+///
+/// ملاحظة: تم استبدال «السائق» بـ «مشرف البند» في إسناد البنود،
+/// وتُقرأ بيانات السائق القديمة تلقائيًا لعرضها كمشرف للبند.
 /// قراءة العداد وكمية تنفيذ البند تبقيان مستقلتين عن هذه الصفحة.
 class ItemDetailsPage extends StatefulWidget {
   final String projectId;
@@ -32,19 +37,42 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   final TextEditingController _defaultOilQuantityController = TextEditingController();
   final TextEditingController _defaultWorkingHoursController = TextEditingController();
 
+  /// تكلفة الوحدة لكل قسم تكلفة (مواد / أجور / معدات / محروقات).
+  final Map<String, TextEditingController> _unitCostControllers = {
+    for (final category in ProjectCosts.categories)
+      category.key: TextEditingController(),
+  };
+
+  /// الإجمالي المتوقع لكل قسم، ويمكن تعديله يدويًا.
+  final Map<String, TextEditingController> _totalCostControllers = {
+    for (final category in ProjectCosts.categories)
+      category.key: TextEditingController(),
+  };
+
+  /// الأقسام التي أدخل فيها المدير إجماليًا يدويًا
+  /// فلا تُعاد حوسبته من تكلفة الوحدة.
+  final Set<String> _manualTotalCategories = <String>{};
+
   Map<String, dynamic>? _itemData;
   String? _projectName;
   bool _loadingItem = true;
   bool _savingAll = false;
 
-  String? _selectedDriverId;
-  String? _selectedDriverName;
+  String? _selectedSupervisorId;
+  String? _selectedSupervisorName;
   String? _selectedEquipmentId;
   String? _selectedEquipmentName;
   String? _selectedEquipmentCode;
   String? _selectedEquipmentWorkUnit;
   double? _equipmentMeterAtAssignment;
   String? _selectedFuelType;
+
+  /// التكاليف المخططة للمشروع (للمقارنة عند حفظ تكاليف البند).
+  Map<String, double> _projectPlannedCosts = <String, double>{};
+  double _projectPlannedTotal = 0;
+
+  /// مجموع تكاليف بقية بنود المشروع لنفس الأقسام.
+  Map<String, double> _otherItemsCosts = <String, double>{};
 
   static const List<String> _fuelTypes = ['ديزل', 'بترول'];
 
@@ -64,7 +92,62 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
     _defaultFuelQuantityController.dispose();
     _defaultOilQuantityController.dispose();
     _defaultWorkingHoursController.dispose();
+
+    for (final controller in _unitCostControllers.values) {
+      controller.dispose();
+    }
+
+    for (final controller in _totalCostControllers.values) {
+      controller.dispose();
+    }
+
     super.dispose();
+  }
+
+  /// الكمية التعاقدية للبند كما هي محفوظة.
+  double get _contractQuantity =>
+      _toDouble(_itemData?['contractQuantity']) ?? 0;
+
+  /// قيمة تكلفة الوحدة المدخلة حاليًا.
+  double _unitCostValue(String key) =>
+      ProjectCosts.parseOptional(_unitCostControllers[key]?.text ?? '') ?? 0;
+
+  /// الإجمالي المتوقع المحسوب أو المدخل يدويًا.
+  double _totalCostValue(String key) =>
+      ProjectCosts.parseOptional(_totalCostControllers[key]?.text ?? '') ?? 0;
+
+  double get _itemTotalCost {
+    double total = 0;
+
+    for (final category in ProjectCosts.categories) {
+      total += _totalCostValue(category.key);
+    }
+
+    return total;
+  }
+
+  /// عند تغيير تكلفة الوحدة نُحدّث الإجمالي تلقائيًا ما لم يُدخل يدويًا.
+  void _onUnitCostChanged(String key) {
+    if (_manualTotalCategories.contains(key)) return;
+
+    final total = _unitCostValue(key) * _contractQuantity;
+
+    _totalCostControllers[key]?.text =
+        ProjectCosts.toEditText(total);
+
+    if (mounted) setState(() {});
+  }
+
+  void _onTotalCostChanged(String key) {
+    if (_totalCostControllers[key]?.text.trim().isNotEmpty ?? false) {
+      _manualTotalCategories.add(key);
+    } else {
+      _manualTotalCategories.remove(key);
+      _onUnitCostChanged(key);
+      return;
+    }
+
+    if (mounted) setState(() {});
   }
 
   String _stringValue(dynamic value, {String defaultValue = ''}) {
@@ -121,12 +204,52 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       _defaultOilQuantityController.text = _stringValue(details['defaultOilQuantity']);
       _defaultWorkingHoursController.text = _stringValue(details['defaultWorkingHours']);
 
-      _selectedDriverId = _stringValue(details['driverId']).isEmpty
-          ? null
-          : _stringValue(details['driverId']);
-      _selectedDriverName = _stringValue(details['driverName']).isEmpty
-          ? null
-          : _stringValue(details['driverName']);
+      // مشرف البند (مع دعم السجل القديم للسائق).
+      final supervisorId = _stringValue(
+        details['supervisorId'] ?? details['driverId'],
+      );
+      final supervisorName = _stringValue(
+        details['supervisorName'] ?? details['driverName'],
+      );
+
+      _selectedSupervisorId =
+          supervisorId.isEmpty ? null : supervisorId;
+      _selectedSupervisorName =
+          supervisorName.isEmpty ? null : supervisorName;
+
+      // تكاليف البند: نقرأ من التفاصيل أولًا ثم من بيانات البند.
+      final costSource = <String, dynamic>{
+        ...itemData,
+        ...details,
+      };
+
+      final loadedQuantity =
+          ProjectCosts.toDouble(itemData['contractQuantity']);
+
+      for (final category in ProjectCosts.categories) {
+        final unitValue =
+            ProjectCosts.toDouble(costSource[category.unitField]);
+        final totalValue =
+            ProjectCosts.toDouble(costSource[category.totalField]);
+
+        _unitCostControllers[category.key]?.text =
+            ProjectCosts.toEditText(unitValue);
+
+        _totalCostControllers[category.key]?.text =
+            ProjectCosts.toEditText(totalValue);
+
+        // الإجمالي المكتوب يدويًا لا يُعاد حسابه من تكلفة الوحدة.
+        final autoTotal = unitValue * loadedQuantity;
+
+        if (totalValue > 0 &&
+            unitValue > 0 &&
+            loadedQuantity > 0 &&
+            (totalValue - autoTotal).abs() > 0.01) {
+          _manualTotalCategories.add(category.key);
+        } else {
+          _manualTotalCategories.remove(category.key);
+        }
+      }
 
       _selectedEquipmentId = _stringValue(details['equipmentId']).isEmpty
           ? null
@@ -146,6 +269,10 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       _selectedFuelType = _fuelTypes.contains(fuelType) ? fuelType : null;
 
       String? projectName;
+
+      var plannedCosts = <String, double>{};
+      var plannedTotal = 0.0;
+
       final projectDoc = await _firestore.collection('projects').doc(widget.projectId).get();
       if (projectDoc.exists) {
         final project = projectDoc.data() ?? <String, dynamic>{};
@@ -153,12 +280,43 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           project['name'] ?? project['projectName'] ?? project['title'],
         );
         if (projectName.isEmpty) projectName = null;
+
+        plannedCosts = ProjectCosts.breakdownOf(project);
+        plannedTotal = ProjectCosts.totalOf(project);
+      }
+
+      // مجموع تكاليف بقية بنود المشروع لنفس أقسام التكلفة.
+      var otherCosts = <String, double>{
+        for (final category in ProjectCosts.categories) category.key: 0.0,
+      };
+
+      try {
+        final itemsSnapshot = await _firestore
+            .collection('items')
+            .where('projectId', isEqualTo: widget.projectId)
+            .get();
+
+        for (final doc in itemsSnapshot.docs) {
+          if (doc.id == widget.itemId) continue;
+
+          final other = ProjectCosts.breakdownOf(doc.data());
+
+          for (final entry in other.entries) {
+            otherCosts[entry.key] =
+                (otherCosts[entry.key] ?? 0) + entry.value;
+          }
+        }
+      } catch (e) {
+        debugPrint('تعذر حساب تكاليف بقية البنود: $e');
       }
 
       if (!mounted) return;
       setState(() {
         _itemData = itemData;
         _projectName = projectName;
+        _projectPlannedCosts = plannedCosts;
+        _projectPlannedTotal = plannedTotal;
+        _otherItemsCosts = otherCosts;
         _loadingItem = false;
       });
     } catch (e) {
@@ -168,10 +326,11 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
     }
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> _driversStream() {
+  /// حسابات مشرفي البنود المرتبطين بهذا المشروع.
+  Stream<QuerySnapshot<Map<String, dynamic>>> _supervisorsStream() {
     return _firestore
         .collection('users')
-        .where('role', isEqualTo: 'driver')
+        .where('role', isEqualTo: 'supervisor')
         .where('active', isEqualTo: true)
         .where('projectIds', arrayContains: widget.projectId)
         .snapshots();
@@ -194,9 +353,35 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       AppWidgets.showWarning(context, 'يرجى اختيار المعدة من حصر المعدات');
       return;
     }
-    if (_selectedDriverId == null || _selectedDriverId!.isEmpty) {
-      AppWidgets.showWarning(context, 'يرجى تحديد السائق المسؤول عن البند');
+    if (_selectedSupervisorId == null || _selectedSupervisorId!.isEmpty) {
+      AppWidgets.showWarning(context, 'يرجى تحديد مشرف البند');
       return;
+    }
+
+    // التحقق من تكاليف البند المدخلة (اختيارية لكن يجب أن تكون صحيحة).
+    for (final category in ProjectCosts.categories) {
+      final unitText =
+          _unitCostControllers[category.key]?.text.trim() ?? '';
+      final totalText =
+          _totalCostControllers[category.key]?.text.trim() ?? '';
+
+      if (unitText.isNotEmpty &&
+          ProjectCosts.parseOptional(unitText) == null) {
+        AppWidgets.showWarning(
+          context,
+          'أدخل ${category.label} للوحدة بشكل صحيح',
+        );
+        return;
+      }
+
+      if (totalText.isNotEmpty &&
+          ProjectCosts.parseOptional(totalText) == null) {
+        AppWidgets.showWarning(
+          context,
+          'أدخل ${category.label} بشكل صحيح',
+        );
+        return;
+      }
     }
     if (_selectedFuelType == null || _selectedFuelType!.isEmpty) {
       AppWidgets.showWarning(context, 'يرجى اختيار نوع الوقود');
@@ -228,7 +413,7 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
 
     setState(() => _savingAll = true);
     try {
-      // إعادة قراءة المعدة والسائق قبل الحفظ للتأكد من أن سجلاتهما ما زالت صالحة.
+      // إعادة قراءة المعدة ومشرف البند قبل الحفظ للتأكد من صحة سجلاتهما.
       final equipmentDoc = await _equipmentCollection.doc(_selectedEquipmentId).get();
       if (!equipmentDoc.exists) {
         throw Exception('المعدة المحددة لم تعد موجودة في حصر المعدات');
@@ -238,18 +423,33 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         throw Exception('المعدة المحددة غير نشطة؛ اختر معدة نشطة أخرى');
       }
 
-      final driverDoc = await _firestore.collection('users').doc(_selectedDriverId).get();
-      if (!driverDoc.exists) throw Exception('حساب السائق غير موجود');
-      final driverData = driverDoc.data() ?? <String, dynamic>{};
-      if (driverData['active'] != true || _stringValue(driverData['role']) != 'driver') {
-        throw Exception('حساب السائق غير نشط أو ليس حساب سائق');
+      final supervisorDoc =
+          await _firestore.collection('users').doc(_selectedSupervisorId).get();
+
+      if (!supervisorDoc.exists) throw Exception('حساب المشرف غير موجود');
+
+      final supervisorData = supervisorDoc.data() ?? <String, dynamic>{};
+
+      final supervisorRole = _stringValue(supervisorData['role']);
+
+      // دور السائق هو الدور القديم الذي استُبدل بمشرف البند.
+      final bool isSupervisorAccount =
+          supervisorData['active'] == true &&
+              (supervisorRole == 'supervisor' || supervisorRole == 'driver');
+
+      if (!isSupervisorAccount) {
+        throw Exception('حساب المشرف غير نشط أو ليس حساب مشرف بند');
       }
-      final driverProjects = (driverData['projectIds'] as List?)
+
+      final supervisorProjects = (supervisorData['projectIds'] as List?)
               ?.map((value) => value.toString())
               .toSet() ??
           <String>{};
-      if (!driverProjects.contains(widget.projectId)) {
-        throw Exception('السائق غير مرتبط بهذا المشروع. اربطه بالمشروع من إدارة المستخدمين أولاً.');
+
+      if (!supervisorProjects.contains(widget.projectId)) {
+        throw Exception(
+          'المشرف غير مرتبط بهذا المشروع. اربطه بالمشروع من إدارة المستخدمين أولاً.',
+        );
       }
 
       final equipmentName = _stringValue(
@@ -260,23 +460,43 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       final equipmentWorkUnit = _stringValue(equipment['workUnit']);
       final equipmentCurrentMeter = _toDouble(equipment['currentMeter']);
 
-      // مزامنة الاسم من حساب السائق لتجنب حفظ اسم قديم.
-      final driverName = _stringValue(
-        driverData['name'],
-        defaultValue: _stringValue(driverData['username'], defaultValue: _selectedDriverName ?? 'سائق'),
+      // مزامنة الاسم من حساب المشرف لتجنب حفظ اسم قديم.
+      final supervisorName = _stringValue(
+        supervisorData['name'],
+        defaultValue: _stringValue(
+          supervisorData['username'],
+          defaultValue: _selectedSupervisorName ?? 'مشرف',
+        ),
       );
-      final driverJobNumber = _stringValue(driverData['jobNumber']);
-      final driverDisplayName = driverJobNumber.isEmpty
-          ? driverName
-          : '$driverName - $driverJobNumber';
+      final supervisorJobNumber = _stringValue(supervisorData['jobNumber']);
+      final supervisorDisplayName = supervisorJobNumber.isEmpty
+          ? supervisorName
+          : '$supervisorName - $supervisorJobNumber';
 
       final detailsRef = _firestore.collection('item_details').doc(widget.itemId);
-      final assignmentCollection = _firestore.collection('item_drivers');
+      final assignmentCollection = _firestore.collection('item_supervisors');
       final assignmentRef = assignmentCollection.doc(widget.itemId);
       final existingAssignment = await assignmentRef.get();
       final existingAssignments = await assignmentCollection
           .where('itemId', isEqualTo: widget.itemId)
           .get();
+
+      // تكاليف البند: تُحفظ في التفاصيل وفي وثيقة البند.
+      final costData = ProjectCosts.buildSaveData(
+        totalTexts: {
+          for (final entry in _totalCostControllers.entries)
+            entry.key: entry.value.text,
+        },
+        unitTexts: {
+          for (final entry in _unitCostControllers.entries)
+            entry.key: entry.value.text,
+        },
+        contractQuantity: _contractQuantity,
+        includeZeros: true,
+      );
+
+      final itemTotalCost =
+          ProjectCosts.toDouble(costData[ProjectCosts.totalField]);
 
       final detailsData = <String, dynamic>{
         'projectId': widget.projectId,
@@ -290,8 +510,9 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         'code': _itemData!['code'],
         'description': _descriptionController.text.trim(),
         'notes': _notesController.text.trim(),
-        'driverId': _selectedDriverId,
-        'driverName': driverDisplayName,
+        'supervisorId': _selectedSupervisorId,
+        'supervisorName': supervisorDisplayName,
+        'assignedToType': 'supervisor',
         'equipmentId': _selectedEquipmentId,
         'equipmentName': equipmentName,
         'equipmentCode': equipmentCode,
@@ -303,6 +524,7 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         'defaultDieselQuantity': fuelQuantity,
         'defaultOilQuantity': oilQuantity,
         'defaultWorkingHours': workingHours,
+        ...costData,
         'detailsAdded': true,
         'updatedAt': FieldValue.serverTimestamp(),
         'updatedBy': currentUser.uid,
@@ -311,8 +533,8 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       final assignmentData = <String, dynamic>{
         'itemId': widget.itemId,
         'projectId': widget.projectId,
-        'driverId': _selectedDriverId,
-        'driverName': driverDisplayName,
+        'supervisorId': _selectedSupervisorId,
+        'supervisorName': supervisorDisplayName,
         'equipmentId': _selectedEquipmentId,
         'equipmentName': equipmentName,
         'equipmentCode': equipmentCode,
@@ -332,6 +554,27 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       final batch = _firestore.batch();
       batch.set(detailsRef, detailsData, SetOptions(merge: true));
 
+      // نسخ التكاليف والإسناد إلى وثيقة البند لتظهر في قائمة البنود والتقارير.
+      batch.set(
+        _firestore.collection('items').doc(widget.itemId),
+        <String, dynamic>{
+          ...costData,
+          'supervisorId': _selectedSupervisorId,
+          'supervisorName': supervisorDisplayName,
+
+          // إعادة حساب تكلفة المنفذ من تكلفة الوحدة الجديدة.
+          ProjectCosts.executedCostField:
+              ProjectCosts.totalUnitCost(costData) *
+                  ProjectCosts.nonNegative(
+                _itemData?['executedQuantity'],
+              ),
+          'detailsAdded': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedBy': currentUser.uid,
+        },
+        SetOptions(merge: true),
+      );
+
       // تعطيل أي سجلات تكليف قديمة لهذا البند قبل إنشاء التكليف الحالي.
       // نتجنب تحديث المستند نفسه الذي سنكتب فيه التكليف الجديد.
       for (final oldDoc in existingAssignments.docs) {
@@ -343,18 +586,55 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           });
         }
       }
+      // إيقاف سجلات إسناد السائق القديمة حتى لا يظهر البند في لوحة السائق.
+      try {
+        final legacyDrivers = await _firestore
+            .collection('item_drivers')
+            .where('itemId', isEqualTo: widget.itemId)
+            .get();
+
+        for (final oldDoc in legacyDrivers.docs) {
+          if (oldDoc.data()['active'] == true) {
+            batch.update(oldDoc.reference, {
+              'active': false,
+              'updatedAt': FieldValue.serverTimestamp(),
+              'updatedBy': currentUser.uid,
+            });
+          }
+        }
+      } catch (e) {
+        debugPrint('تعذر تحديث سجلات السائق القديمة: $e');
+      }
+
       batch.set(assignmentRef, assignmentData, SetOptions(merge: true));
       await batch.commit();
 
       if (!mounted) return;
       setState(() {
-        _selectedDriverName = driverDisplayName;
+        _selectedSupervisorName = supervisorDisplayName;
         _selectedEquipmentName = equipmentName;
         _selectedEquipmentCode = equipmentCode;
         _selectedEquipmentWorkUnit = equipmentWorkUnit;
         _equipmentMeterAtAssignment = equipmentCurrentMeter;
       });
-      AppWidgets.showSuccess(context, 'تم حفظ تفاصيل البند وربط المعدة والسائق بنجاح');
+      AppWidgets.showSuccess(
+        context,
+        'تم حفظ تفاصيل البند وربط المعدة ومشرف البند بنجاح',
+      );
+
+      // تنبيه غير معطّل عند تجاوز المخطط العام للمشروع.
+      if (_projectPlannedTotal > 0) {
+        final remaining = _projectPlannedTotal - itemTotalCost;
+
+        if (remaining < 0 && mounted) {
+          AppWidgets.showWarning(
+            context,
+            'إجمالي تكلفة البند تجاوز المخطط العام للمشروع بمبلغ '
+            '${ProjectCosts.formatMoney(remaining.abs())}',
+          );
+        }
+      }
+
       await _loadItem();
     } catch (e) {
       if (!mounted) return;
@@ -390,6 +670,18 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           AppInfoRow(label: 'كود البند', value: code, icon: Icons.qr_code_2_outlined),
           AppSpacing.verticalSm,
           AppInfoRow(label: 'كمية العقد', value: '$quantity $unit', icon: Icons.numbers_outlined),
+          AppSpacing.verticalSm,
+          AppInfoRow(
+            label: 'مشرف البند',
+            value: _selectedSupervisorName ?? 'لم يُحدد بعد',
+            icon: Icons.supervisor_account_outlined,
+          ),
+          AppSpacing.verticalSm,
+          AppInfoRow(
+            label: 'إجمالي تكلفة البند',
+            value: ProjectCosts.formatMoney(ProjectCosts.totalOf(data)),
+            icon: Icons.payments_outlined,
+          ),
         ],
       ),
     );
@@ -475,49 +767,253 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
     );
   }
 
-  Widget _buildDriverDropdown() {
+  Widget _buildSupervisorDropdown() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: _driversStream(),
+      stream: _supervisorsStream(),
       builder: (context, snapshot) {
-        if (snapshot.hasError) return AppError(message: 'تعذر تحميل السائقين:\n${snapshot.error}');
+        if (snapshot.hasError) {
+          return AppError(message: 'تعذر تحميل مشرفي البنود:\n${snapshot.error}');
+        }
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const AppLoading(message: 'جاري تحميل السائقين...');
+          return const AppLoading(message: 'جاري تحميل المشرفين...');
         }
         final docs = snapshot.data?.docs ?? [];
         if (docs.isEmpty) {
           return const AppEmpty(
-            message: 'لا يوجد سائقون فعالون مرتبطون بهذا المشروع. اربط السائق بالمشروع من إدارة المستخدمين أولًا.',
-            icon: Icons.person_outline,
+            message:
+                'لا يوجد مشرفو بنود مرتبطون بهذا المشروع. '
+                'أضف المشرف من «المستخدمون ← المشرفون» لدى مسؤول النظام واربطه بالمشروع أولًا.',
+            icon: Icons.supervisor_account_outlined,
           );
         }
 
-        final selectedExists = docs.any((doc) => doc.id == _selectedDriverId);
+        final selectedExists = docs.any((doc) => doc.id == _selectedSupervisorId);
         return AppDropdown<String>(
-          label: 'السائق المسؤول *',
-          hint: 'اختر السائق',
-          value: selectedExists ? _selectedDriverId : null,
-          prefixIcon: Icons.local_shipping_outlined,
+          label: 'مشرف البند *',
+          hint: 'اختر مشرف البند',
+          value: selectedExists ? _selectedSupervisorId : null,
+          prefixIcon: Icons.supervisor_account_outlined,
           items: docs.map((doc) {
             final data = doc.data();
-            final name = _stringValue(data['name'], defaultValue: _stringValue(data['username'], defaultValue: 'سائق'));
+            final name = _stringValue(
+              data['name'],
+              defaultValue: _stringValue(data['username'], defaultValue: 'مشرف'),
+            );
             final jobNumber = _stringValue(data['jobNumber']);
             return DropdownMenuItem<String>(
               value: doc.id,
-              child: Text(jobNumber.isEmpty ? name : '$name - $jobNumber', overflow: TextOverflow.ellipsis),
+              child: Text(
+                jobNumber.isEmpty ? name : '$name - $jobNumber',
+                overflow: TextOverflow.ellipsis,
+              ),
             );
           }).toList(),
           onChanged: (id) {
             if (id == null) return;
             final data = docs.firstWhere((doc) => doc.id == id).data();
-            final name = _stringValue(data['name'], defaultValue: _stringValue(data['username'], defaultValue: 'سائق'));
+            final name = _stringValue(
+              data['name'],
+              defaultValue: _stringValue(data['username'], defaultValue: 'مشرف'),
+            );
             final jobNumber = _stringValue(data['jobNumber']);
             setState(() {
-              _selectedDriverId = id;
-              _selectedDriverName = jobNumber.isEmpty ? name : '$name - $jobNumber';
+              _selectedSupervisorId = id;
+              _selectedSupervisorName =
+                  jobNumber.isEmpty ? name : '$name - $jobNumber';
             });
           },
         );
       },
+    );
+  }
+
+  // ============================================================
+  // تكاليف البند
+  // ============================================================
+
+  Widget _buildCostsSection() {
+    final rows = <Widget>[];
+
+    for (int i = 0; i < ProjectCosts.categories.length; i++) {
+      final category = ProjectCosts.categories[i];
+
+      if (i != 0) rows.add(AppSpacing.verticalMd);
+
+      rows.add(
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: AppNumberField(
+                controller: _unitCostControllers[category.key],
+                label: 'تكلفة وحدة: ${category.shortLabel}',
+                hint: 'للوحدة الواحدة',
+                suffixText: ProjectCosts.currency,
+                prefixIcon: category.icon,
+                onChanged: (_) => _onUnitCostChanged(category.key),
+              ),
+            ),
+            AppSpacing.horizontalMd,
+            Expanded(
+              child: AppNumberField(
+                controller: _totalCostControllers[category.key],
+                label: 'إجمالي ${category.shortLabel}',
+                hint: 'محسوب تلقائيًا',
+                suffixText: ProjectCosts.currency,
+                prefixIcon: Icons.calculate_outlined,
+                onChanged: (_) => _onTotalCostChanged(category.key),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final totalUnitCost = ProjectCosts.categories
+        .map((category) => _unitCostValue(category.key))
+        .fold<double>(0, (sum, value) => sum + value);
+
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const AppSectionTitle(
+            title: 'تكاليف البند',
+            subtitle:
+                'المواد وأجور العمالة والمعدات والمحروقات. '
+                'أدخل تكلفة الوحدة ليُحسب الإجمالي تلقائيًا، '
+                'أو أدخل الإجمالي مباشرة.',
+            icon: Icons.payments_outlined,
+          ),
+          AppSpacing.verticalMd,
+          ...rows,
+          AppSpacing.verticalMd,
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AppInfoRow(
+                  label: 'كمية العقد',
+                  value: '${ProjectCosts.formatNumber(_contractQuantity)} '
+                      '${_stringValue(_itemData?['unit'])}'.trim(),
+                  icon: Icons.numbers_outlined,
+                ),
+                AppSpacing.verticalXs,
+                AppInfoRow(
+                  label: 'إجمالي تكلفة الوحدة',
+                  value: ProjectCosts.formatMoney(totalUnitCost),
+                  icon: Icons.trending_up_outlined,
+                ),
+                AppSpacing.verticalXs,
+                AppInfoRow(
+                  label: 'إجمالي تكلفة البند المتوقع',
+                  value: ProjectCosts.formatMoney(_itemTotalCost),
+                  icon: Icons.payments_outlined,
+                ),
+              ],
+            ),
+          ),
+          AppSpacing.verticalMd,
+          _buildCostComparison(),
+        ],
+      ),
+    );
+  }
+
+  /// مقارنة تكلفة البند بالتكلفة المخططة للمشروع.
+  Widget _buildCostComparison() {
+    if (_projectPlannedTotal <= 0) {
+      return const AppCard(
+        color: AppColors.background,
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, color: AppColors.textSecondary, size: 20),
+            AppSpacing.horizontalSm,
+            Expanded(
+              child: Text(
+                'لم يحدد مسؤول النظام تكاليف المشروع بعد، '
+                'لذلك لا توجد مقارنة مع المخطط العام للمشروع.',
+                style: AppTextStyles.bodySecondary,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final othersTotal = _otherItemsCosts.values
+        .fold<double>(0, (sum, value) => sum + value);
+
+    final total = _itemTotalCost;
+    final remaining = _projectPlannedTotal - othersTotal;
+    final exceeded = total > remaining + 0.01;
+
+    return AppCard(
+      color: exceeded
+          ? AppColors.danger.withValues(alpha: 0.06)
+          : AppColors.success.withValues(alpha: 0.06),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                exceeded
+                    ? Icons.warning_amber_rounded
+                    : Icons.verified_outlined,
+                size: 20,
+                color: exceeded ? AppColors.danger : AppColors.success,
+              ),
+              AppSpacing.horizontalSm,
+              Expanded(
+                child: Text(
+                  exceeded
+                      ? 'تكلفة هذا البند تتجاوز المتبقي من مخطط المشروع'
+                      : 'تكلفة هذا البند ضمن المخطط العام للمشروع',
+                  style: AppTextStyles.body.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: exceeded ? AppColors.danger : AppColors.success,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          AppSpacing.verticalSm,
+          for (final category in ProjectCosts.categories)
+            AppInfoRow(
+              label: 'متبقي ${category.shortLabel}',
+              value: ProjectCosts.formatMoney(
+                (() {
+                  final left = (_projectPlannedCosts[category.key] ?? 0) -
+                      (_otherItemsCosts[category.key] ?? 0);
+                  return left < 0 ? 0.0 : left;
+                })(),
+              ),
+              icon: category.icon,
+            ),
+          AppSpacing.verticalXs,
+          AppInfoRow(
+            label: 'إجمالي مخطط المشروع',
+            value: ProjectCosts.formatMoney(_projectPlannedTotal),
+            icon: Icons.business_outlined,
+          ),
+          AppInfoRow(
+            label: 'مخصص لبقية البنود',
+            value: ProjectCosts.formatMoney(othersTotal),
+            icon: Icons.playlist_add_check_outlined,
+          ),
+          AppInfoRow(
+            label: 'المتبقي لهذا البند',
+            value: ProjectCosts.formatMoney(remaining < 0 ? 0 : remaining),
+            icon: Icons.savings_outlined,
+          ),
+        ],
+      ),
     );
   }
 
@@ -553,16 +1049,16 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const AppSectionTitle(title: 'المعدة والسائق والاستهلاك المخطط', icon: Icons.settings_outlined),
+          const AppSectionTitle(title: 'المعدة ومشرف البند والاستهلاك المخطط', icon: Icons.settings_outlined),
           AppSpacing.verticalSm,
           const Text(
-            'اختر المعدة من حصر المعدات، ثم السائق. هذه الكميات مخططة للتكليف؛ السائق يسجل الاستهلاك الفعلي لاحقًا، والمهندس يسجل كمية البند المنفذة بشكل مستقل.',
+            'اختر المعدة من حصر المعدات، ثم مشرف البند. هذه الكميات مخططة للتكليف؛ مشرف البند يسجل الاستهلاك الفعلي لاحقًا، والمهندس يسجل كمية البند المنفذة بشكل مستقل.',
             style: AppTextStyles.bodySecondary,
           ),
           AppSpacing.verticalMd,
           _buildEquipmentDropdown(),
           AppSpacing.verticalMd,
-          _buildDriverDropdown(),
+          _buildSupervisorDropdown(),
           AppSpacing.verticalMd,
           AppDropdown<String>(
             label: 'نوع الوقود *',
@@ -610,7 +1106,7 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
                 AppSpacing.horizontalSm,
                 Expanded(
                   child: Text(
-                    'اختيار المعدة لا يحسب كمية البند ولا يغيّر قراءة العداد. قراءة العداد منفصلة، وكمية التنفيذ يسجلها المهندس، والاستهلاك الفعلي يسجله السائق.',
+                    'اختيار المعدة لا يحسب كمية البند ولا يغيّر قراءة العداد. قراءة العداد منفصلة، وكمية التنفيذ يسجلها المهندس، والاستهلاك الفعلي يسجله مشرف البند.',
                     style: AppTextStyles.bodySecondary,
                   ),
                 ),
@@ -637,7 +1133,8 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
                     children: [
                       const AppPageHeader(
                         title: 'تفاصيل البند',
-                        subtitle: 'ربط البند بالمعدة والسائق وتحديد الاستهلاك المخطط',
+                        subtitle:
+                            'ربط البند بالمعدة ومشرف البند، وتحديد التكاليف والاستهلاك المخطط',
                         icon: Icons.settings_outlined,
                       ),
                       AppSpacing.verticalLg,
@@ -645,10 +1142,12 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
                       AppSpacing.verticalMd,
                       _buildDetailsSection(),
                       AppSpacing.verticalMd,
+                      _buildCostsSection(),
+                      AppSpacing.verticalMd,
                       _buildExecutionSection(),
                       AppSpacing.verticalLg,
                       AppButton(
-                        label: _savingAll ? 'جارٍ حفظ التفاصيل...' : 'حفظ التفاصيل وتكليف السائق',
+                        label: _savingAll ? 'جارٍ حفظ التفاصيل...' : 'حفظ التفاصيل وتكليف المشرف',
                         icon: Icons.save_outlined,
                         loading: _savingAll,
                         expanded: true,

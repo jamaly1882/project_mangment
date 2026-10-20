@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
+import '../../core/utils/costs.dart';
 import '../../core/widgets/app_widgets.dart';
+import '../../core/widgets/cost_widgets.dart';
 import 'items_page.dart';
 
 // =============================================================
@@ -348,6 +350,107 @@ class ProjectManagerDashboardPage extends StatelessWidget {
   }
 
   // =============================================================
+  // بطاقة تكاليف المشروع
+  // =============================================================
+
+  Widget _buildCostsSection(Map<String, dynamic> project) {
+    final planned = ProjectCosts.breakdownOf(project);
+    final plannedTotal = ProjectCosts.totalOf(project);
+
+    return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      future: firestore
+          .collection('items')
+          .where(
+            'projectId',
+            isEqualTo: projectId,
+          )
+          .get(),
+      builder: (context, snapshot) {
+        final assigned = <String, double>{
+          for (final category in ProjectCosts.categories)
+            category.key: 0.0,
+        };
+
+        double assignedTotal = 0;
+
+        for (final doc in snapshot.data?.docs ??
+            <QueryDocumentSnapshot<Map<String, dynamic>>>[]) {
+          final breakdown = ProjectCosts.breakdownOf(doc.data());
+
+          for (final entry in breakdown.entries) {
+            assigned[entry.key] =
+                (assigned[entry.key] ?? 0) + entry.value;
+            assignedTotal += entry.value;
+          }
+        }
+
+        final remaining = plannedTotal - assignedTotal;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            CostSummaryCard(
+              title: 'تكاليف المشروع مقابل تكاليف البنود',
+              breakdown: assigned,
+              total: assignedTotal,
+              reference: planned,
+              referenceLabel: 'المخطط للمشروع',
+              icon: Icons.payments_outlined,
+            ),
+
+            AppSpacing.verticalMd,
+
+            AppCard(
+              color: plannedTotal <= 0
+                  ? AppColors.background
+                  : (remaining < 0
+                      ? AppColors.danger.withValues(alpha: 0.06)
+                      : AppColors.success.withValues(alpha: 0.06)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  AppInfoRow(
+                    icon: Icons.account_balance_wallet_outlined,
+                    label: 'إجمالي مخطط للمشروع',
+                    value: plannedTotal > 0
+                        ? ProjectCosts.formatMoney(plannedTotal)
+                        : 'لم يحدده مسؤول النظام بعد',
+                  ),
+                  AppSpacing.verticalXs,
+                  AppInfoRow(
+                    icon: Icons.assignment_outlined,
+                    label: 'مجموع تكاليف البنود',
+                    value: ProjectCosts.formatMoney(assignedTotal),
+                  ),
+                  AppSpacing.verticalXs,
+                  if (plannedTotal > 0)
+                    AppInfoRow(
+                      icon: remaining < 0
+                          ? Icons.warning_amber_rounded
+                          : Icons.savings_outlined,
+                      label: remaining < 0
+                          ? 'تجاوز المخطط'
+                          : 'المتبقي من المخطط',
+                      value: ProjectCosts.formatMoney(
+                        remaining.abs(),
+                      ),
+                    )
+                  else
+                    const Text(
+                      'أضف تكاليف المشروع من صفحة المشاريع لدى مسؤول '
+                      'النظام ليتم مقارنتها بتكاليف البنود.',
+                      style: AppTextStyles.bodySecondary,
+                    ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // =============================================================
   // بطاقة إحصائية: عدد البنود
   // =============================================================
 
@@ -579,7 +682,22 @@ class ProjectManagerDashboardPage extends StatelessWidget {
                   AppSpacing.verticalXl,
 
                   // =================================================
-                  // 2. عدد البنود
+                  // 2. تكاليف المشروع
+                  // =================================================
+
+                  Text(
+                    'تكاليف المشروع',
+                    style: AppTextStyles.sectionTitle,
+                  ),
+
+                  AppSpacing.verticalMd,
+
+                  _buildCostsSection(project),
+
+                  AppSpacing.verticalXl,
+
+                  // =================================================
+                  // 3. عدد البنود
                   // =================================================
 
                   Text(
@@ -602,7 +720,7 @@ class ProjectManagerDashboardPage extends StatelessWidget {
                   AppSpacing.verticalXl,
 
                   // =================================================
-                  // 3. صفحة البنود
+                  // 4. صفحة البنود
                   // =================================================
 
                   Text(

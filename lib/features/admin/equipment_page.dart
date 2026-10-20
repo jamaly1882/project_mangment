@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 /// صفحة حصر المعدات لمسؤول النظام.
 ///
 /// ملاحظات:
-/// - السائق يتم تهيئته مسبقًا من صفحة المستخدمين.
-/// - هذه الصفحة تقوم فقط بربط المعدة بسائق موجود.
-/// - يتم حفظ driverId مع بيانات السائق الحالية للعرض السريع.
+/// - مشرف البند (أو السائق قديمًا) يتم تهيئته مسبقًا من صفحة المستخدمين.
+/// - هذه الصفحة تقوم فقط بربط المعدة بمشرف موجود.
+/// - يتم حفظ driverId/driverName مع بيانات المشرف الحالية للعرض السريع.
 ///
 /// Firestore:
 /// collection: equipment
@@ -69,7 +69,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
   }
 
   // =========================================================
-  // جلب السائقين
+  // جلب مشرفي البنود (مع حسابات السائقين القديمة)
   // =========================================================
 
   Stream<QuerySnapshot<Map<String, dynamic>>>
@@ -77,7 +77,10 @@ class _EquipmentPageState extends State<EquipmentPage> {
     return _users
         .where(
           'role',
-          isEqualTo: 'driver',
+          whereIn: [
+            'supervisor',
+            'driver',
+          ],
         )
         .where(
           'active',
@@ -87,7 +90,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
   }
 
   // =========================================================
-  // صفحة اختيار السائق
+  // صفحة اختيار مشرف المعدة
   // =========================================================
 
   String _driverDisplayName(
@@ -122,7 +125,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
       return phone;
     }
 
-    return 'سائق بدون اسم';
+    return 'مشرف بدون اسم';
   }
 
   String _driverName(
@@ -142,7 +145,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
       return username;
     }
 
-    return 'سائق بدون اسم';
+    return 'مشرف بدون اسم';
   }
 
   String _driverPhone(
@@ -320,14 +323,14 @@ class _EquipmentPageState extends State<EquipmentPage> {
                         ),
 
                         // =====================================
-                        // السائق
+                        // مشرف المعدة
                         // =====================================
 
                         Align(
                           alignment:
                               Alignment.centerRight,
                           child: Text(
-                            'السائق',
+                            'مشرف المعدة',
                             style: Theme.of(
                               context,
                             )
@@ -362,7 +365,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
                                 decoration:
                                     InputDecoration(
                                   labelText:
-                                      'السائق',
+                                      'مشرف المعدة',
                                   border:
                                       OutlineInputBorder(),
                                 ),
@@ -381,7 +384,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
                                       width: 10,
                                     ),
                                     Text(
-                                      'جاري تحميل السائقين...',
+                                      'جاري تحميل المشرفين...',
                                     ),
                                   ],
                                 ),
@@ -393,12 +396,12 @@ class _EquipmentPageState extends State<EquipmentPage> {
                                 decoration:
                                     const InputDecoration(
                                   labelText:
-                                      'السائق',
+                                      'مشرف المعدة',
                                   border:
                                       OutlineInputBorder(),
                                 ),
                                 child: Text(
-                                  'تعذر تحميل السائقين',
+                                  'تعذر تحميل المشرفين',
                                   style:
                                       TextStyle(
                                     color:
@@ -413,7 +416,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
                                     [];
 
                             // ---------------------------------
-                            // إذا كان السائق السابق غير نشط
+                            // إذا كان المشرف السابق غير نشط
                             // ---------------------------------
 
                             final hasSelectedDriver =
@@ -434,7 +437,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
                                     decoration:
                                         const InputDecoration(
                                       labelText:
-                                          'السائق الحالي',
+                                          'المشرف الحالي',
                                       border:
                                           OutlineInputBorder(),
                                     ),
@@ -454,12 +457,12 @@ class _EquipmentPageState extends State<EquipmentPage> {
                                           child:
                                               Text(
                                             selectedDriverName ??
-                                                'سائق غير متاح حاليًا',
+                                                'مشرف غير متاح حاليًا',
                                           ),
                                         ),
                                         IconButton(
                                           tooltip:
-                                              'إزالة السائق',
+                                              'إزالة المشرف',
                                           onPressed:
                                               saving
                                                   ? null
@@ -506,7 +509,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
                               decoration:
                                   const InputDecoration(
                                 labelText:
-                                    'اختر السائق',
+                                    'اختر مشرف المعدة',
                                 border:
                                     OutlineInputBorder(),
                                 prefixIcon:
@@ -517,7 +520,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
                               ),
                               hint:
                                   const Text(
-                                'اختر سائقًا مهيأ مسبقًا',
+                                'اختر مشرفًا مهيأ مسبقًا',
                               ),
                               items:
                                   driverDocs
@@ -597,7 +600,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
                                     value
                                         .trim()
                                         .isEmpty) {
-                                  return 'يجب اختيار السائق';
+                                  return 'يجب اختيار مشرف المعدة';
                                 }
 
                                 return null;
@@ -851,7 +854,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
                           }
 
                           // ===================================
-                          // السائق
+                          // مشرف المعدة
                           // ===================================
 
                           if (selectedDriverId ==
@@ -860,7 +863,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
                                   .trim()
                                   .isEmpty) {
                             _showMessage(
-                              'يجب اختيار سائق للمعدة',
+                              'يجب اختيار مشرف للمعدة',
                               error: true,
                             );
 
@@ -921,7 +924,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
                                   parsedMeter,
 
                               // =================================
-                              // السائق
+                              // مشرف المعدة
                               // =================================
 
                               'driverId':
@@ -1060,7 +1063,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
     if (result == true) {
       _showMessage(
         document == null
-            ? 'تمت إضافة المعدة وربطها بالسائق'
+            ? 'تمت إضافة المعدة وربطها بالمشرف'
             : 'تم تحديث بيانات المعدة',
       );
     }
@@ -1242,7 +1245,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
                 decoration:
                     InputDecoration(
                   hintText:
-                      'بحث بالكود أو نوع المعدة أو السائق',
+                      'بحث بالكود أو نوع المعدة أو المشرف',
                   prefixIcon:
                       const Icon(
                     Icons.search,
@@ -1558,7 +1561,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
                               'الشركة: ${d['manufacturer'] ?? '—'}\n'
                               'وحدة العمل: ${d['workUnit'] ?? '—'}  |  '
                               'العداد: ${meter ?? '—'}\n'
-                              'السائق: $driverName'
+                              'المشرف: $driverName'
                               '${driverPhone.isEmpty ? '' : ' - $driverPhone'}\n'
                               'الحالة: $condition'
                               '${active ? '' : ' (غير نشطة)'}',

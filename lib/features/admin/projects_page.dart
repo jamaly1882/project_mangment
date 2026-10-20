@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
+import '../../core/utils/costs.dart';
 import '../../core/widgets/app_widgets.dart';
+import '../../core/widgets/cost_widgets.dart';
 
 class ProjectsPage extends StatefulWidget {
   const ProjectsPage({
@@ -966,6 +968,52 @@ class _ProjectCardState
 
             AppSpacing.verticalMd,
 
+            // ======================================================
+            // تكاليف المشروع
+            // ======================================================
+
+            Row(
+              children: [
+                const Icon(
+                  Icons.payments_outlined,
+                  color: AppColors.primary,
+                ),
+                AppSpacingHorizontal.sm,
+                Text(
+                  'تكاليف المشروع',
+                  style:
+                      AppTextStyles.sectionTitle,
+                ),
+              ],
+            ),
+
+            AppSpacing.verticalSm,
+
+            for (final category in ProjectCosts.categories)
+              AppInfoRow(
+                icon: category.icon,
+                label: category.label,
+                value: ProjectCosts.formatMoney(
+                  ProjectCosts.nonNegative(
+                    data[category.totalField],
+                  ),
+                ),
+              ),
+
+            AppInfoRow(
+              icon: Icons.calculate_outlined,
+              label: 'إجمالي التكلفة',
+              value: ProjectCosts.formatMoney(
+                ProjectCosts.totalOf(data),
+              ),
+            ),
+
+            AppSpacing.verticalMd,
+
+            const Divider(),
+
+            AppSpacing.verticalMd,
+
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -1058,6 +1106,14 @@ class _ProjectFormDialogState
   late final TextEditingController
       _durationController;
 
+  /// حقول تكاليف المشروع:
+  /// المواد، أجور العمالة، المعدات، المحروقات.
+  final Map<String, TextEditingController>
+      _costControllers = {
+    for (final category in ProjectCosts.categories)
+      category.key: TextEditingController(),
+  };
+
   DateTime? _startDate;
 
   String? _selectedGovernorateId;
@@ -1103,6 +1159,21 @@ class _ProjectFormDialogState
               '',
     );
 
+    // تعبئة حقول التكلفة عند التعديل.
+    for (final category in ProjectCosts.categories) {
+      final controller =
+          _costControllers[category.key];
+
+      if (controller == null) continue;
+
+      final value = ProjectCosts.toDouble(
+        data?[category.totalField],
+      );
+
+      controller.text =
+          ProjectCosts.toEditText(value);
+    }
+
     _selectedGovernorateId =
         data?['governorateId']?.toString();
 
@@ -1132,7 +1203,39 @@ class _ProjectFormDialogState
     _codeController.dispose();
     _durationController.dispose();
 
+    for (final controller in _costControllers.values) {
+      controller.dispose();
+    }
+
     super.dispose();
+  }
+
+  // ============================================================
+  // إجمالي التكاليف المحسوب تلقائيًا من الحقول
+  // ============================================================
+
+  Map<String, double> get _enteredCosts {
+    final result = <String, double>{};
+
+    for (final category in ProjectCosts.categories) {
+      result[category.key] =
+          ProjectCosts.parseOptional(
+        _costControllers[category.key]?.text ?? '',
+      ) ??
+          0;
+    }
+
+    return result;
+  }
+
+  double get _enteredCostsTotal {
+    double total = 0;
+
+    for (final value in _enteredCosts.values) {
+      total += value;
+    }
+
+    return total;
   }
 
   // ============================================================
@@ -1372,6 +1475,19 @@ class _ProjectFormDialogState
             endDate.month,
             endDate.day,
           ),
+        ),
+
+        // ========================================================
+        // تكاليف المشروع:
+        // المواد + أجور العمالة + المعدات + المحروقات
+        // والإجمالي يُحسب تلقائيًا.
+        // ========================================================
+        ...ProjectCosts.buildSaveData(
+          totalTexts: {
+            for (final entry in _costControllers.entries)
+              entry.key: entry.value.text,
+          },
+          includeZeros: true,
         ),
       };
 
@@ -1870,6 +1986,41 @@ class _ProjectFormDialogState
 
           AppSpacing.verticalLg,
 
+          // ========================================================
+          // تكاليف المشروع
+          // ========================================================
+
+          const AppSectionTitle(
+            title: 'تكاليف المشروع',
+            icon: Icons.payments_outlined,
+          ),
+
+          AppSpacing.verticalSm,
+
+          const Text(
+            'هذه الحقول اختيارية. إجمالي التكلفة يُحسب تلقائيًا '
+            'من مجموع المواد وأجور العمالة والمعدات والمحروقات.',
+            style: AppTextStyles.bodySecondary,
+          ),
+
+          AppSpacing.verticalMd,
+
+          CostFieldsEditor(
+            controllers: _costControllers,
+            enabled: !_loading,
+            onChanged: () {
+              if (mounted) {
+                setState(() {});
+              }
+            },
+          ),
+
+          AppSpacing.verticalMd,
+
+          _buildCostsTotalCard(),
+
+          AppSpacing.verticalLg,
+
           Row(
             children: [
               Expanded(
@@ -1923,6 +2074,77 @@ class _ProjectFormDialogState
                             ? 'حفظ التعديلات'
                             : 'إضافة المشروع',
                   ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // بطاقة الإجمالي التلقائي
+  // ============================================================
+
+  Widget _buildCostsTotalCard() {
+    final total = _enteredCostsTotal;
+
+    return AppCard(
+      color: AppColors.background,
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.stretch,
+        children: [
+          for (final category in ProjectCosts.categories)
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                vertical: 3,
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    category.icon,
+                    size: 16,
+                    color: AppColors.textSecondary,
+                  ),
+                  AppSpacingHorizontal.sm,
+                  Expanded(
+                    child: Text(
+                      category.shortLabel,
+                      style:
+                          AppTextStyles.bodySecondary,
+                    ),
+                  ),
+                  Text(
+                    ProjectCosts.formatMoney(
+                      _enteredCosts[category.key] ?? 0,
+                    ),
+                    style: AppTextStyles.body.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          AppSpacing.verticalSm,
+          const Divider(),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'إجمالي تكلفة المشروع',
+                  style: AppTextStyles.body.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Text(
+                ProjectCosts.formatMoney(total),
+                style: AppTextStyles.body.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.primary,
+                  fontSize: 16,
                 ),
               ),
             ],

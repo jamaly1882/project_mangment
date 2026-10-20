@@ -6,23 +6,43 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_widgets.dart';
 
-/// تفاصيل تكليف السائق.
+/// تفاصيل تكليف مشرف البند (أو السائق في السجل القديم).
 /// لا تعدّل هذه الصفحة كمية تنفيذ البند أو قراءة العداد؛ تسجل الاستهلاك الفعلي فقط.
-class DriverItemDetailsPage extends StatefulWidget {
+class AssignmentDetailsPage extends StatefulWidget {
   final String projectId;
   final String itemId;
 
-  const DriverItemDetailsPage({
+  /// true => مشرف البند، false => سجل السائق القديم.
+  final bool supervisorMode;
+
+  const AssignmentDetailsPage({
     super.key,
     required this.projectId,
     required this.itemId,
+    this.supervisorMode = true,
   });
 
   @override
-  State<DriverItemDetailsPage> createState() => _DriverItemDetailsPageState();
+  State<AssignmentDetailsPage> createState() =>
+      _AssignmentDetailsPageState();
 }
 
-class _DriverItemDetailsPageState extends State<DriverItemDetailsPage> {
+class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
+  // ============================================================
+  // نصوص وحقول حسب الوضع
+  // ============================================================
+
+  String get _assigneeLabel => widget.supervisorMode ? 'المشرف' : 'السائق';
+
+  String get _collectionName =>
+      widget.supervisorMode ? 'item_supervisors' : 'item_drivers';
+
+  String get _idField =>
+      widget.supervisorMode ? 'supervisorId' : 'driverId';
+
+  String get _roleValue =>
+      widget.supervisorMode ? 'supervisor' : 'driver';
+
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -80,14 +100,14 @@ class _DriverItemDetailsPageState extends State<DriverItemDetailsPage> {
     return number.toStringAsFixed(2).replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
   }
 
-  /// يعيد تكليف السائق الحالي؛ نتحقق من المستند القياسي أولًا، ثم ندعم السجلات القديمة.
+  /// يعيد تكليف المستخدم الحالي؛ نتحقق من المستند القياسي أولًا ثم ندعم السجلات القديمة.
   Future<Map<String, dynamic>?> _getCurrentAssignment(String uid) async {
-    final assignments = _firestore.collection('item_drivers');
+    final assignments = _firestore.collection(_collectionName);
     final standardDoc = await assignments.doc(widget.itemId).get();
     if (standardDoc.exists) {
       final data = standardDoc.data() ?? <String, dynamic>{};
       if (data['active'] == true &&
-          _stringValue(data['driverId']) == uid &&
+          _stringValue(data[_idField]) == uid &&
           _stringValue(data['itemId'], fallback: widget.itemId) == widget.itemId &&
           _stringValue(data['projectId']) == widget.projectId) {
         return data;
@@ -101,7 +121,7 @@ class _DriverItemDetailsPageState extends State<DriverItemDetailsPage> {
     for (final doc in oldAssignments.docs) {
       final data = doc.data();
       if (data['active'] == true &&
-          _stringValue(data['driverId']) == uid &&
+          _stringValue(data[_idField]) == uid &&
           _stringValue(data['projectId']) == widget.projectId) {
         return data;
       }
@@ -120,15 +140,15 @@ class _DriverItemDetailsPageState extends State<DriverItemDetailsPage> {
     try {
       final user = _auth.currentUser;
       if (user == null) {
-        throw Exception('يجب تسجيل الدخول بحساب السائق أولًا.');
+        throw Exception('يجب تسجيل الدخول بحساب $_assigneeLabel أولًا.');
       }
 
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
       final userData = userDoc.data() ?? <String, dynamic>{};
       if (!userDoc.exists ||
-          _stringValue(userData['role']) != 'driver' ||
+          _stringValue(userData['role']) != _roleValue ||
           userData['active'] != true) {
-        throw Exception('هذا الحساب ليس سائقًا فعالًا.');
+        throw Exception('هذا الحساب ليس $_assigneeLabel فعالًا.');
       }
 
       final assignment = await _getCurrentAssignment(user.uid);
@@ -153,8 +173,8 @@ class _DriverItemDetailsPageState extends State<DriverItemDetailsPage> {
       if (_stringValue(details['projectId']) != widget.projectId) {
         throw Exception('تفاصيل البند لا تتبع المشروع المحدد.');
       }
-      if (_stringValue(details['driverId']) != user.uid) {
-        throw Exception('السائق المسجل في تفاصيل البند لا يطابق حسابك.');
+      if (_stringValue(details[_idField]) != user.uid) {
+        throw Exception('$_assigneeLabel المسجل في تفاصيل البند لا يطابق حسابك.');
       }
 
       final defaultHours = _toDouble(details['defaultWorkingHours']);
@@ -218,7 +238,7 @@ class _DriverItemDetailsPageState extends State<DriverItemDetailsPage> {
 
     setState(() => _saving = true);
     try {
-      // إعادة فحص التكليف مباشرة قبل الحفظ حتى لا يستمر سائق بعد تغيير إسناد البند.
+      // إعادة فحص التكليف قبل الحفظ حتى لا يستمر المستخدم بعد تغيير إسناد البند.
       final assignment = await _getCurrentAssignment(user.uid);
       if (assignment == null) {
         throw Exception('لم يعد هذا التكليف مسندًا إلى حسابك. حدّث الصفحة أو راجع مدير المشروع.');
@@ -233,7 +253,8 @@ class _DriverItemDetailsPageState extends State<DriverItemDetailsPage> {
       final detailsRef = _firestore.collection('item_details').doc(widget.itemId);
       final detailsDoc = await detailsRef.get();
       final currentDetails = detailsDoc.data() ?? <String, dynamic>{};
-      if (!detailsDoc.exists || _stringValue(currentDetails['driverId']) != user.uid) {
+      if (!detailsDoc.exists ||
+          _stringValue(currentDetails[_idField]) != user.uid) {
         throw Exception('تفاصيل البند لم تعد مسندة إلى حسابك.');
       }
 
@@ -298,6 +319,12 @@ class _DriverItemDetailsPageState extends State<DriverItemDetailsPage> {
     return _stringValue(item['typeName'], fallback: 'بدون اسم');
   }
 
+  String _assigneeName(Map<String, dynamic> details) {
+    final name = _stringValue(details['supervisorName']);
+    if (name.isNotEmpty) return name;
+    return _stringValue(details['driverName'], fallback: 'غير محدد');
+  }
+
   Widget _buildItemCard() {
     final item = _itemData ?? <String, dynamic>{};
     final details = _detailsData ?? <String, dynamic>{};
@@ -320,9 +347,17 @@ class _DriverItemDetailsPageState extends State<DriverItemDetailsPage> {
           AppPageHeader(
             title: _itemName(item),
             subtitle: 'تفاصيل التكليف والاستهلاك الفعلي',
-            icon: Icons.local_shipping_outlined,
+            icon: widget.supervisorMode
+                ? Icons.supervisor_account_outlined
+                : Icons.local_shipping_outlined,
           ),
           AppSpacing.verticalMd,
+          AppInfoRow(
+            label: _assigneeLabel,
+            value: _assigneeName(details),
+            icon: Icons.person_outline,
+          ),
+          AppSpacing.verticalSm,
           AppInfoRow(
             label: 'نوع البند',
             value: _stringValue(item['typeName'], fallback: 'غير محدد'),
@@ -478,7 +513,9 @@ class _DriverItemDetailsPageState extends State<DriverItemDetailsPage> {
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
-      title: 'تفاصيل تكليف السائق',
+      title: widget.supervisorMode
+          ? 'تفاصيل تكليف مشرف البند'
+          : 'تفاصيل تكليف السائق',
       showBackButton: true,
       child: _loading
           ? const AppLoading(message: 'جارٍ التحقق من التكليف وتحميل التفاصيل...')
