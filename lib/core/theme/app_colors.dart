@@ -61,6 +61,9 @@ class AppColors {
 
   static const Color driver = Color(0xFFEF6C00);
 
+  /// لون مشرف البند (بديل السائق في إسناد البنود).
+  static const Color supervisor = Color(0xFF6A1B9A);
+
   static const Color accountant = Color(0xFF2E7D32);
 
   static const Color admin = Color(0xFF4527A0);

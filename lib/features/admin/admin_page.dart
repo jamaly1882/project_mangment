@@ -2,12 +2,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/widgets/app_widgets.dart';
 import 'users_page.dart';
 import 'governorates_page.dart';
 import 'districts_page.dart';
 import 'projects_page.dart';
 import 'project_managers_page.dart';
 import 'item_band_page.dart';
+import 'item_types_page.dart';
 import 'material_page.dart' as materials;
 import 'equipment_management_pages.dart' as equipment_data;
 import 'equipment_page.dart';
@@ -41,6 +43,7 @@ class _AdminPageState extends State<AdminPage> {
       'projectManagers': countRole('project_manager'),
       'users': countUsers(),
       'engineers': countRole('engineer'),
+      'supervisors': countRole('supervisor'),
       'drivers': countRole('driver'),
       'accountants': countRole('accountant'),
       'itemBands': countCollection('item_definitions'),
@@ -108,6 +111,88 @@ class _AdminPageState extends State<AdminPage> {
   void openProjectManagers() => _push(const ProjectManagersPage());
   void openUsers() => _push(const UsersPage());
   void openItemBands() => _push(const ItemBandPage());
+
+  /// صفحة أنواع البنود تحتاج اختيار البند أولًا،
+  /// لذلك نعرض قائمة البنود ثم نفتح صفحة أنواع البند المختار.
+  Future<void> openItemTypes() async {
+    try {
+      final snapshot = await firestore
+          .collection('item_definitions')
+          .where('active', isEqualTo: true)
+          .get();
+
+      final docs = snapshot.docs;
+
+      if (docs.isEmpty) {
+        if (!mounted) return;
+
+        AppWidgets.showWarning(
+          context,
+          'لا توجد بنود. أضف البند أولًا من «إضافة بند».',
+        );
+        return;
+      }
+
+      if (!mounted) return;
+
+      final selected = await showDialog<List<String>>(
+        context: context,
+        builder: (dialogContext) {
+          return Directionality(
+            textDirection: TextDirection.rtl,
+            child: AlertDialog(
+              title: const Text('اختر البند لعرض أنواعه'),
+              content: SizedBox(
+                width: 420,
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final doc in docs)
+                      ListTile(
+                        leading: const Icon(Icons.category_outlined),
+                        title: Text(
+                          doc.data()['name']?.toString() ?? 'بدون اسم',
+                        ),
+                        onTap: () {
+                          Navigator.of(dialogContext).pop(
+                            <String>[
+                              doc.id,
+                              doc.data()['name']?.toString() ?? 'بدون اسم',
+                            ],
+                          );
+                        },
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('إلغاء'),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+
+      if (selected == null || selected.length < 2) return;
+
+      _push(
+        ItemTypesPage(
+          itemDefinitionId: selected[0],
+          itemDefinitionName: selected[1],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      AppWidgets.showError(
+        context,
+        'تعذر تحميل البنود:\n$e',
+      );
+    }
+  }
   void openMaterials() => _push(const materials.MaterialPage());
 
   void openEquipment() => _push(const EquipmentPage());
@@ -137,6 +222,9 @@ class _AdminPageState extends State<AdminPage> {
   void addProjectManager() => openProjectManagers();
   void addUser() => openUsers();
   void addItemBand() => openItemBands();
+  void addItemType() => openItemTypes();
+  void addSupervisor() =>
+      _push(const UsersPage(initialSupervisor: true));
   void addMaterial() => openMaterials();
   void addEquipment() => openEquipment();
 
@@ -350,7 +438,7 @@ class _AdminPageState extends State<AdminPage> {
                     _drawerItem(
                       icon: Icons.people,
                       title: 'المستخدمون',
-                      subtitle: 'المهندسون والسائقون والمحاسبون وغيرهم',
+                      subtitle: 'المهندسون والمشرفون والمحاسبون وغيرهم',
                       onTap: openUsers,
                     ),
                     _drawerItem(
@@ -373,6 +461,12 @@ class _AdminPageState extends State<AdminPage> {
                       icon: Icons.category,
                       title: 'تعريف البنود وأنواعها',
                       onTap: openItemBands,
+                    ),
+                    _drawerItem(
+                      icon: Icons.list_alt,
+                      title: 'أنواع البنود',
+                      subtitle: 'اختيار بند ثم إدارة أنواعه',
+                      onTap: openItemTypes,
                     ),
                     _drawerItem(
                       icon: Icons.inventory_2,
@@ -479,7 +573,7 @@ class _AdminPageState extends State<AdminPage> {
                 _managementCard(
                   icon: Icons.people,
                   title: 'المستخدمون',
-                  subtitle: 'المهندسون والسائقون والمحاسبون',
+                  subtitle: 'المهندسون والمشرفون والمحاسبون',
                   onTap: openUsers,
                 ),
                 _managementCard(
@@ -505,6 +599,12 @@ class _AdminPageState extends State<AdminPage> {
                   title: 'البنود والأنواع',
                   subtitle: 'عرض وتعريف البنود وأنواعها',
                   onTap: openItemBands,
+                ),
+                _managementCard(
+                  icon: Icons.list_alt,
+                  title: 'أنواع البنود',
+                  subtitle: 'إدارة أنواع كل بند',
+                  onTap: openItemTypes,
                 ),
                 _managementCard(
                   icon: Icons.inventory_2,
@@ -588,8 +688,14 @@ class _AdminPageState extends State<AdminPage> {
                 _addCard(
                   icon: Icons.person_add,
                   title: 'إضافة مستخدم',
-                  subtitle: 'مهندس أو سائق أو محاسب',
+                  subtitle: 'مهندس أو مشرف بند أو محاسب',
                   onTap: addUser,
+                ),
+                _addCard(
+                  icon: Icons.supervisor_account,
+                  title: 'إضافة مشرف بند',
+                  subtitle: 'بديل السائق في إسناد البنود',
+                  onTap: addSupervisor,
                 ),
                 _addCard(
                   icon: Icons.person_add_alt_1,
@@ -614,6 +720,12 @@ class _AdminPageState extends State<AdminPage> {
                   title: 'إضافة بند',
                   subtitle: 'إنشاء بند أو نوع أو وحدة',
                   onTap: addItemBand,
+                ),
+                _addCard(
+                  icon: Icons.playlist_add,
+                  title: 'إضافة نوع',
+                  subtitle: 'إضافة نوع لأحد البنود',
+                  onTap: addItemType,
                 ),
                 _addCard(
                   icon: Icons.add_shopping_cart,
@@ -692,9 +804,15 @@ class _AdminPageState extends State<AdminPage> {
                   onTap: openUsers,
                 ),
                 _statCard(
+                  statKey: 'supervisors',
+                  icon: Icons.supervisor_account,
+                  title: 'مشرفو البنود',
+                  onTap: openUsers,
+                ),
+                _statCard(
                   statKey: 'drivers',
                   icon: Icons.local_shipping,
-                  title: 'السائقون',
+                  title: 'السائقون (قديم)',
                   onTap: openUsers,
                 ),
                 _statCard(

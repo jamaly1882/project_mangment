@@ -2,8 +2,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
+import '../../core/utils/costs.dart';
 import '../../core/widgets/app_widgets.dart';
 import 'item_details_page.dart';
 
@@ -28,6 +30,10 @@ class _AddItemPageState extends State<AddItemPage> {
   final TextEditingController _durationController = TextEditingController();
 
   String? _projectName;
+
+  /// التكاليف التي حددها مسؤول النظام للمشروع (للمقارنة فقط).
+  Map<String, double> _projectPlannedCosts = <String, double>{};
+  double _projectPlannedTotal = 0;
 
   String? _selectedItemDefinitionId;
   String? _selectedItemDefinitionName;
@@ -119,10 +125,15 @@ class _AddItemPageState extends State<AddItemPage> {
         ),
       );
 
+      final planned = ProjectCosts.breakdownOf(data);
+      final plannedTotal = ProjectCosts.totalOf(data);
+
       if (!mounted) return;
 
       setState(() {
         _projectName = name.isEmpty ? null : name;
+        _projectPlannedCosts = planned;
+        _projectPlannedTotal = plannedTotal;
       });
     } catch (e) {
       debugPrint('خطأ في جلب اسم المشروع: $e');
@@ -820,6 +831,13 @@ class _AddItemPageState extends State<AddItemPage> {
 
       await itemRef.set(itemData);
 
+      // البند الجديد بلا تكاليف بعد، لكن نحدّث مجاميع المشروع.
+      try {
+        await ProjectCostSync.applyTotals(widget.projectId);
+      } catch (e) {
+        debugPrint('تعذرت مزامنة تكاليف المشروع: $e');
+      }
+
       if (!mounted) return;
 
       AppWidgets.showSuccess(
@@ -915,6 +933,25 @@ class _AddItemPageState extends State<AddItemPage> {
                       value: widget.projectId,
                       icon: Icons.tag_outlined,
                     ),
+                    if (_projectPlannedTotal > 0) ...[
+                      const Divider(height: 24),
+                      AppInfoRow(
+                        label: 'إجمالي تكلفة المشروع (محسوبة من البنود)',
+                        value: ProjectCosts.formatMoney(
+                          _projectPlannedTotal,
+                        ),
+                        icon: Icons.payments_outlined,
+                      ),
+                      for (final category in ProjectCosts.categories)
+                        if ((_projectPlannedCosts[category.key] ?? 0) > 0)
+                          AppInfoRow(
+                            label: category.label,
+                            value: ProjectCosts.formatMoney(
+                              _projectPlannedCosts[category.key] ?? 0,
+                            ),
+                            icon: category.icon,
+                          ),
+                    ],
                   ],
                 ),
               ),
@@ -1109,6 +1146,51 @@ class _AddItemPageState extends State<AddItemPage> {
                 child: Text(
                   'تبدأ كمية التنفيذ من 0. ويقوم مدير المشروع بإضافة الكميات المنفذة من صفحة البنود، بينما تبقى تواريخ التنفيذ تحت مسؤولية المهندس.',
                   style: AppTextStyles.bodySecondary,
+                ),
+              ),
+
+              AppSpacing.verticalLg,
+
+              const AppSectionTitle(
+                title: 'تكاليف البند',
+                icon: Icons.payments_outlined,
+              ),
+              AppSpacing.verticalSm,
+
+              AppCard(
+                color: AppColors.background,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          color: AppColors.info,
+                        ),
+                        AppSpacing.horizontalSm,
+                        Expanded(
+                          child: Text(
+                            'تُحدد تكاليف المواد وأجور العمالة والمعدات '
+                            'والمحروقات لمشرف البند بعد الحفظ، '
+                            'في قسم «تكاليف البند» داخل صفحة التفاصيل.',
+                            style: AppTextStyles.bodySecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_projectPlannedTotal > 0) ...[
+                      AppSpacing.verticalMd,
+                      Text(
+                        'إجمالي تكلفة المشروع حتى الآن: '
+                        '${ProjectCosts.formatMoney(_projectPlannedTotal)}',
+                        style: AppTextStyles.body.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.info,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
 

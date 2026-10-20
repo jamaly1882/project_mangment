@@ -1,716 +1,113 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import 'driver_item_details_page.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_text_styles.dart';
+import '../../core/widgets/app_widgets.dart';
 
+// =============================================================
+// لوحة السائق (دور قديم — مغلقة)
+// =============================================================
+
+/// تم استبدال السائق بـ «مشرف البند» في إسناد البنود وتسجيل الاستهلاك.
+///
+/// لذلك لم تعد لوحة السائق تفتح لأي حساب، ومن يبقى حسابه على دور
+/// `driver` يرى هذه الرسالة فقط حتى يحوّله مسؤول النظام إلى
+/// «مشرف بند» من صفحة المستخدمين، فيفتح بعدها لوحته الطبيعية
+/// ويظهر له نفس بنوده المسندة سابقًا.
 class DriverPage extends StatelessWidget {
-  // =========================================================
-  // المشاريع المرتبط بها السائق
-  // =========================================================
-
   final List<String> projectIds;
 
   const DriverPage({
     super.key,
-    required this.projectIds,
+    this.projectIds = const <String>[],
   });
 
-  // =========================================================
-  // Firestore
-  // =========================================================
+  Future<void> _logout(BuildContext context) async {
+    await FirebaseAuth.instance.signOut();
+    if (!context.mounted) return;
 
-  FirebaseFirestore get firestore => FirebaseFirestore.instance;
-
-  // =========================================================
-  // جلب البنود المسندة للسائق الحالي
-  // =========================================================
-
-  Stream<QuerySnapshot<Map<String, dynamic>>> assignmentsStream() {
-    final user = FirebaseAuth.instance.currentUser;
-
-    if (user == null) {
-      return const Stream.empty();
-    }
-
-    return firestore
-        .collection('item_drivers')
-        .where(
-          'driverId',
-          isEqualTo: user.uid,
-        )
-        .where(
-          'active',
-          isEqualTo: true,
-        )
-        .snapshots();
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/',
+      (route) => false,
+    );
   }
-
-  // =========================================================
-  // تحويل الرقم
-  // =========================================================
-
-  double toDouble(dynamic value) {
-    if (value == null) {
-      return 0;
-    }
-
-    if (value is num) {
-      return value.toDouble();
-    }
-
-    return double.tryParse(value.toString()) ?? 0;
-  }
-
-  // =========================================================
-  // تنسيق الرقم
-  // =========================================================
-
-  String formatNumber(dynamic value) {
-    if (value == null) {
-      return '0';
-    }
-
-    final number = toDouble(value);
-
-    if (number == number.roundToDouble()) {
-      return number.toInt().toString();
-    }
-
-    return number.toString();
-  }
-
-  // =========================================================
-  // Build
-  // =========================================================
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('لوحة السائق'),
-          centerTitle: true,
-        ),
-        body: user == null
-            ? const Center(
-                child: Text(
-                  'يجب تسجيل الدخول أولاً',
-                  textDirection: TextDirection.rtl,
-                ),
-              )
-            : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: assignmentsStream(),
-                builder: (
-                  context,
-                  snapshot,
-                ) {
-                  // =================================================
-                  // تحميل
-                  // =================================================
-
-                  if (snapshot.connectionState ==
-                      ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(),
-                    );
-                  }
-
-                  // =================================================
-                  // خطأ
-                  // =================================================
-
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Text(
-                          'حدث خطأ أثناء تحميل البنود:\n'
-                          '${snapshot.error}',
-                          textAlign: TextAlign.center,
-                          textDirection: TextDirection.rtl,
-                        ),
-                      ),
-                    );
-                  }
-
-                  final assignments = snapshot.data?.docs ?? [];
-
-                  // =================================================
-                  // لا توجد بنود
-                  // =================================================
-
-                  if (assignments.isEmpty) {
-                    return const Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.local_shipping,
-                            size: 75,
-                          ),
-                          SizedBox(height: 15),
-                          Text(
-                            'لا توجد بنود مسندة إليك',
-                            style: TextStyle(
-                              fontSize: 19,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            textDirection: TextDirection.rtl,
-                          ),
-                          SizedBox(height: 8),
-                          Padding(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: 30,
-                            ),
-                            child: Text(
-                              'ستظهر هنا البنود التي يسندها لك مدير المشروع.',
-                              textAlign: TextAlign.center,
-                              textDirection: TextDirection.rtl,
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  // =================================================
-                  // البنود المسندة
-                  // =================================================
-
-                  return ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: assignments.length,
-                    itemBuilder: (
-                      context,
-                      index,
-                    ) {
-                      final assignment = assignments[index].data();
-
-                      // =================================================
-                      // رقم البند
-                      // =================================================
-
-                      final itemId = assignment['itemId']?.toString();
-
-                      if (itemId == null || itemId.isEmpty) {
-                        return const SizedBox.shrink();
-                      }
-
-                      // =================================================
-                      // جلب بيانات البند
-                      // =================================================
-
-                      return FutureBuilder<
-                          DocumentSnapshot<Map<String, dynamic>>>(
-                        future: firestore
-                            .collection('items')
-                            .doc(itemId)
-                            .get(),
-                        builder: (
-                          context,
-                          itemSnapshot,
-                        ) {
-                          // =================================================
-                          // تحميل
-                          // =================================================
-
-                          if (itemSnapshot.connectionState ==
-                              ConnectionState.waiting) {
-                            return const Card(
-                              margin: EdgeInsets.only(
-                                bottom: 15,
-                              ),
-                              child: Padding(
-                                padding: EdgeInsets.all(25),
-                                child: Center(
-                                  child: CircularProgressIndicator(),
-                                ),
-                              ),
-                            );
-                          }
-
-                          // =================================================
-                          // خطأ
-                          // =================================================
-
-                          if (itemSnapshot.hasError) {
-                            return Card(
-                              margin: const EdgeInsets.only(
-                                bottom: 15,
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Text(
-                                  'حدث خطأ أثناء تحميل البند:\n'
-                                  '${itemSnapshot.error}',
-                                  textAlign: TextAlign.center,
-                                  textDirection: TextDirection.rtl,
-                                ),
-                              ),
-                            );
-                          }
-
-                          // =================================================
-                          // البند غير موجود
-                          // =================================================
-
-                          final itemDocument = itemSnapshot.data;
-
-                          if (itemDocument == null ||
-                              !itemDocument.exists) {
-                            return const SizedBox.shrink();
-                          }
-
-                          final itemData = itemDocument.data() ?? {};
-
-                          // =================================================
-                          // التأكد من المشروع
-                          // =================================================
-
-                          final itemProjectId =
-                              itemData['projectId']?.toString();
-
-                          if (itemProjectId == null ||
-                              itemProjectId.isEmpty) {
-                            return const SizedBox.shrink();
-                          }
-
-                          if (projectIds.isNotEmpty &&
-                              !projectIds.contains(itemProjectId)) {
-                            return const SizedBox.shrink();
-                          }
-
-                          // =================================================
-                          // جلب تفاصيل البند
-                          //
-                          // item_details/{itemId}
-                          // =================================================
-
-                          return FutureBuilder<
-                              DocumentSnapshot<Map<String, dynamic>>>(
-                            future: firestore
-                                .collection('item_details')
-                                .doc(itemId)
-                                .get(),
-                            builder: (
-                              context,
-                              detailsSnapshot,
-                            ) {
-                              // =================================================
-                              // تحميل التفاصيل
-                              // =================================================
-
-                              if (detailsSnapshot.connectionState ==
-                                  ConnectionState.waiting) {
-                                return const Card(
-                                  margin: EdgeInsets.only(
-                                    bottom: 15,
-                                  ),
-                                  child: Padding(
-                                    padding: EdgeInsets.all(25),
-                                    child: Center(
-                                      child: CircularProgressIndicator(),
-                                    ),
-                                  ),
-                                );
-                              }
-
-                              // =================================================
-                              // خطأ في التفاصيل
-                              // =================================================
-
-                              if (detailsSnapshot.hasError) {
-                                return Card(
-                                  margin: const EdgeInsets.only(
-                                    bottom: 15,
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Text(
-                                      'حدث خطأ أثناء تحميل تفاصيل البند:\n'
-                                      '${detailsSnapshot.error}',
-                                      textAlign: TextAlign.center,
-                                      textDirection: TextDirection.rtl,
-                                    ),
-                                  ),
-                                );
-                              }
-
-                              // =================================================
-                              // بيانات التفاصيل
-                              // =================================================
-
-                              final detailsData =
-                                  detailsSnapshot.data?.data() ?? {};
-
-                              // =================================================
-                              // بطاقة البند
-                              // =================================================
-
-                              return _DriverItemCard(
-                                data: itemData,
-                                detailsData: detailsData,
-                                formatNumber: formatNumber,
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          DriverItemDetailsPage(
-                                        projectId: itemProjectId,
-                                        itemId: itemId,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              );
-                            },
-                          );
-                        },
-                      );
-                    },
-                  );
-                },
-              ),
-      ),
-    );
-  }
-}
-
-// =============================================================
-// بطاقة البند للسائق
-// =============================================================
-
-class _DriverItemCard extends StatelessWidget {
-  final Map<String, dynamic> data;
-  final Map<String, dynamic> detailsData;
-  final String Function(dynamic) formatNumber;
-  final VoidCallback onTap;
-
-  const _DriverItemCard({
-    required this.data,
-    required this.detailsData,
-    required this.formatNumber,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // =========================================================
-    // اسم البند
-    // =========================================================
-
-    final itemName =
-        data['itemDefinitionName']?.toString() ??
-        data['name']?.toString() ??
-        'بدون اسم';
-
-    // =========================================================
-    // نوع البند
-    // =========================================================
-
-    final typeName = data['typeName']?.toString() ?? '';
-
-    // =========================================================
-    // الكود
-    // =========================================================
-
-    final code = data['code']?.toString() ?? '-';
-
-    // =========================================================
-    // الوحدة
-    // =========================================================
-
-    final unit = data['unit']?.toString() ?? '';
-
-    // =========================================================
-    // الكمية التعاقدية
-    // =========================================================
-
-    final contractQuantity = formatNumber(
-      data['contractQuantity'],
-    );
-
-    // =========================================================
-    // القيم الافتراضية
-    // =========================================================
-
-    final defaultWorkingHours =
-        detailsData['defaultWorkingHours'];
-
-    final defaultDiesel =
-        detailsData['defaultDieselQuantity'];
-
-    final defaultOil =
-        detailsData['defaultOilQuantity'];
-
-    // =========================================================
-    // القيم الفعلية التي يدخلها السائق
-    // =========================================================
-
-    final consumedFuelQuantity =
-        detailsData['consumedFuelQuantity'];
-
-    final executedWorkingHours =
-        detailsData['executedWorkingHours'];
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 15),
-      elevation: 2,
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // =================================================
-              // اسم البند
-              // =================================================
-
-              Row(
+    return AppScaffold(
+      title: 'حساب السائق قديم',
+      child: AppPage(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AppCard(
+              padding: const EdgeInsets.all(22),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(10),
-                      color: Theme.of(context)
-                          .colorScheme
-                          .primaryContainer,
-                    ),
-                    child: const Icon(
-                      Icons.local_shipping,
-                      size: 30,
-                    ),
+                  const Icon(
+                    Icons.block,
+                    size: 54,
+                    color: AppColors.warning,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  AppSpacing.verticalMd,
+                  const Text(
+                    'دور «السائق» لم يعد مستخدمًا في النظام',
+                    style: AppTextStyles.cardTitle,
+                    textAlign: TextAlign.center,
+                  ),
+                  AppSpacing.verticalSm,
+                  const Text(
+                    'حلّ «مشرف البند» محله: هو من يسجّل الاستهلاك الفعلي '
+                    '(الوقود والزيت وساعات العمل) ويضيف التكاليف الفعلية '
+                    'لبند المواد والعمالة والمعدات والمحروقات، '
+                    'من صفحة البند المسند إليه.',
+                    style: AppTextStyles.body,
+                    textAlign: TextAlign.center,
+                  ),
+                  AppSpacing.verticalMd,
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.background,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: const Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          itemName,
-                          style: const TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textDirection: TextDirection.rtl,
+                          'ما المطلوب؟',
+                          style: AppTextStyles.sectionTitle,
                         ),
-                        if (typeName.isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            'النوع: $typeName',
-                            style: TextStyle(
-                              color: Colors.grey.shade700,
-                            ),
-                            textDirection: TextDirection.rtl,
-                          ),
-                        ],
-                        const SizedBox(height: 4),
+                        AppSpacing.verticalXs,
                         Text(
-                          'الكود: $code',
-                          style: TextStyle(
-                            color: Colors.grey.shade700,
-                          ),
-                          textDirection: TextDirection.rtl,
+                          '1) يفتح مسؤول النظام صفحة «المستخدمين».\n'
+                          '2) يختار هذا الحساب ويغيّر دوره إلى '
+                          '«مشرف بند».\n'
+                          '3) يسجّل المستخدم الدخول من جديد، '
+                          'فتظهر له البنود نفسها التي كانت مسندة إليه '
+                          'وهو سائق.',
+                          style: AppTextStyles.bodySecondary,
                         ),
                       ],
                     ),
                   ),
-                ],
-              ),
-
-              const Divider(height: 25),
-
-              // =================================================
-              // الكمية التعاقدية
-              // =================================================
-
-              _Info(
-                title: 'الكمية التعاقدية',
-                value: '$contractQuantity $unit',
-                icon: Icons.assignment,
-              ),
-
-              const SizedBox(height: 15),
-
-              // =================================================
-              // القيم الافتراضية
-              // =================================================
-
-              const Text(
-                'القيم الافتراضية',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-                textDirection: TextDirection.rtl,
-              ),
-
-              const SizedBox(height: 10),
-
-              Row(
-                children: [
-                  Expanded(
-                    child: _Info(
-                      title: 'ساعات العمل',
-                      value: defaultWorkingHours == null
-                          ? 'غير محدد'
-                          : '${formatNumber(defaultWorkingHours)} ساعة',
-                      icon: Icons.access_time,
-                    ),
-                  ),
-                  Expanded(
-                    child: _Info(
-                      title: 'الديزل',
-                      value: defaultDiesel == null
-                          ? 'غير محدد'
-                          : '${formatNumber(defaultDiesel)} لتر',
-                      icon: Icons.local_gas_station,
-                    ),
+                  AppSpacing.verticalLg,
+                  AppButton(
+                    label: 'تسجيل الخروج',
+                    icon: Icons.logout,
+                    expanded: true,
+                    onPressed: () => _logout(context),
                   ),
                 ],
               ),
-
-              const SizedBox(height: 15),
-
-              _Info(
-                title: 'الزيت',
-                value: defaultOil == null
-                    ? 'غير محدد'
-                    : '${formatNumber(defaultOil)} لتر',
-                icon: Icons.oil_barrel,
-              ),
-
-              const SizedBox(height: 20),
-
-              // =================================================
-              // بيانات التنفيذ الفعلية
-              // =================================================
-
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: Colors.grey.shade300,
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Text(
-                      'بيانات التنفيذ الفعلية',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textDirection: TextDirection.rtl,
-                    ),
-                    const SizedBox(height: 12),
-                    _Info(
-                      title: 'ساعات التنفيذ',
-                      value: executedWorkingHours == null
-                          ? 'لم تدخل بعد'
-                          : '${formatNumber(executedWorkingHours)} ساعة',
-                      icon: Icons.access_time,
-                    ),
-                    const SizedBox(height: 12),
-                    _Info(
-                      title: 'الوقود المستهلك',
-                      value: consumedFuelQuantity == null
-                          ? 'لم يدخل بعد'
-                          : '${formatNumber(consumedFuelQuantity)} لتر',
-                      icon: Icons.local_gas_station,
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 18),
-
-              // =================================================
-              // زر التفاصيل
-              // =================================================
-
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: ElevatedButton.icon(
-                  onPressed: onTap,
-                  icon: const Icon(Icons.visibility),
-                  label: const Text(
-                    'عرض البند والتفاصيل',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+            AppSpacing.verticalXl,
+          ],
         ),
       ),
-    );
-  }
-}
-
-// =============================================================
-// معلومات
-// =============================================================
-
-class _Info extends StatelessWidget {
-  final String title;
-  final String value;
-  final IconData icon;
-
-  const _Info({
-    required this.title,
-    required this.value,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(
-          icon,
-          size: 20,
-        ),
-        const SizedBox(width: 7),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600,
-                ),
-                textDirection: TextDirection.rtl,
-              ),
-              const SizedBox(height: 3),
-              Text(
-                value,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                ),
-                textDirection: TextDirection.rtl,
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

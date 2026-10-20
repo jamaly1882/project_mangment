@@ -1,8 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
+import '../../core/utils/costs.dart';
 import '../../core/widgets/app_widgets.dart';
 
 import 'add_item_page.dart';
@@ -56,6 +58,24 @@ class ItemsPage extends StatelessWidget {
     }
 
     return value.toStringAsFixed(2);
+  }
+
+  // =========================================================
+  // التكاليف
+  // =========================================================
+
+  /// إجمالي تكلفة وحدة لهذا البند.
+  double _itemUnitCostTotal(
+    Map<String, dynamic> data,
+  ) {
+    return ProjectCosts.totalUnitCost(data);
+  }
+
+  /// الكمية المنفذة.
+  double _executedQuantity(
+    Map<String, dynamic> data,
+  ) {
+    return _toDouble(data['executedQuantity']);
   }
 
   // =========================================================
@@ -143,6 +163,12 @@ class ItemsPage extends StatelessWidget {
     }
 
     final controller = TextEditingController();
+
+    // تكلفة الوحدة الإجمالية لهذا البند (مواد + أجور + معدات + محروقات).
+    final unitCost = _itemUnitCostTotal(data);
+
+    // قيمة قابلة للتحديث لعرض أثر الكمية على التكلفة.
+    double previewQuantity = 0;
 
     final quantity = await showDialog<double>(
       context: context,
@@ -250,6 +276,10 @@ class ItemsPage extends StatelessWidget {
                           value.trim(),
                         );
 
+                        setState(() {
+                          previewQuantity = entered ?? 0;
+                        });
+
                         if (entered == null) {
                           setState(() {
                             errorText = null;
@@ -289,6 +319,45 @@ class ItemsPage extends StatelessWidget {
                       'الكمية المدخلة ستضاف إلى الكمية المنفذة الحالية.',
                       style: AppTextStyles.bodySecondary,
                     ),
+
+                    // ===========================================
+                    // أثر الكمية على التكلفة
+                    // ===========================================
+
+                    if (unitCost > 0) ...[
+                      AppSpacing.verticalMd,
+                      AppCard(
+                        color: AppColors.background,
+                        child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.stretch,
+                          children: [
+                            AppInfoRow(
+                              icon: Icons.payments_outlined,
+                              label: 'تكلفة الوحدة لهذا البند',
+                              value: ProjectCosts.formatMoney(unitCost),
+                            ),
+                            AppSpacing.verticalXs,
+                            AppInfoRow(
+                              icon: Icons.add_chart,
+                              label: 'تكلفة هذه الكمية',
+                              value: ProjectCosts.formatMoney(
+                                unitCost * previewQuantity,
+                              ),
+                            ),
+                            AppSpacing.verticalXs,
+                            AppInfoRow(
+                              icon: Icons.attach_money,
+                              label: 'تكلفة التنفيذ الإجمالية',
+                              value: ProjectCosts.formatMoney(
+                                unitCost *
+                                    (executedQuantity + previewQuantity),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -397,15 +466,30 @@ class ItemsPage extends StatelessWidget {
             );
           }
 
-          transaction.update(
-            ref,
-            {
-              'executedQuantity': newExecutedQuantity,
-              'updatedAt': FieldValue.serverTimestamp(),
-            },
-          );
+          final updates = <String, dynamic>{
+            'executedQuantity': newExecutedQuantity,
+            'updatedAt': FieldValue.serverTimestamp(),
+          };
+
+          // حفظ تكلفة التنفيذ محسوبة من تكلفة الوحدة × الكمية المنفذة.
+          final unitCostTotal =
+              ProjectCosts.totalUnitCost(snapshot.data() ?? {});
+
+          if (unitCostTotal > 0) {
+            updates[ProjectCosts.executedCostField] =
+                unitCostTotal * newExecutedQuantity;
+          }
+
+          transaction.update(ref, updates);
         },
       );
+
+      // تحديث تكاليف المشروع (تكلفة المنفذ تعتمد على الكميات).
+      try {
+        await ProjectCostSync.applyTotals(projectId);
+      } catch (e) {
+        debugPrint('تعذرت مزامنة تكاليف المشروع: $e');
+      }
 
       if (!context.mounted) {
         return;
@@ -908,6 +992,81 @@ class _ItemCard extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+
+          AppSpacing.verticalMd,
+
+          // =====================================================
+          // التكاليف ومشرف البند
+          // =====================================================
+
+          Builder(
+            builder: (context) {
+              final totalCost = ProjectCosts.totalOf(data);
+              final executedCost =
+                  ProjectCosts.nonNegative(
+                data[ProjectCosts.executedCostField],
+              );
+              final actualCost =
+                  ProjectCosts.actualTotalOf(data);
+              final supervisorName =
+                  data['supervisorName']?.toString() ??
+                      '';
+
+              if (totalCost <= 0 &&
+                  actualCost <= 0 &&
+                  supervisorName.isEmpty) {
+                return const SizedBox.shrink();
+              }
+
+              return Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.background,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColors.border,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    AppInfoRow(
+                      icon: Icons.payments_outlined,
+                      label: 'إجمالي تكلفة البند',
+                      value: totalCost > 0
+                          ? ProjectCosts.formatMoney(totalCost)
+                          : 'لم تُحدد بعد',
+                    ),
+                    if (executedCost > 0) ...[
+                      AppSpacing.verticalXs,
+                      AppInfoRow(
+                        icon: Icons.trending_up_outlined,
+                        label: 'تكلفة المنفذ',
+                        value:
+                            ProjectCosts.formatMoney(executedCost),
+                      ),
+                    ],
+                    if (actualCost > 0) ...[
+                      AppSpacing.verticalXs,
+                      AppInfoRow(
+                        icon: Icons.check_circle_outline,
+                        label: 'التكلفة الفعلية للمشرف',
+                        value:
+                            ProjectCosts.formatMoney(actualCost),
+                      ),
+                    ],
+                    if (supervisorName.isNotEmpty) ...[
+                      AppSpacing.verticalXs,
+                      AppInfoRow(
+                        icon: Icons.supervisor_account_outlined,
+                        label: 'مشرف البند',
+                        value: supervisorName,
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
           ),
 
           AppSpacing.verticalLg,

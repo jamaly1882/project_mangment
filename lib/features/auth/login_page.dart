@@ -10,6 +10,7 @@ import '../admin/admin_page.dart';
 import '../project_manager/project_manager_dashboard_page.dart';
 import '../engineer/engineer_page.dart';
 import '../driver/driver_page.dart';
+import '../supervisor/supervisor_page.dart';
 import '../accountant/accountant_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -414,15 +415,19 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       // ========================================================
-      // السائق
+      // مشرف البند (والسائق في الحسابات القديمة)
       // ========================================================
 
-      if (role == 'driver') {
+      if (role == 'supervisor' || role == 'driver') {
+        final bool isSupervisor = role == 'supervisor';
+
         if (projectIds.isEmpty) {
           await _auth.signOut();
 
           _showMessage(
-            'السائق غير مرتبط بأي مشروع',
+            isSupervisor
+                ? 'المشرف غير مرتبط بأي مشروع'
+                : 'السائق غير مرتبط بأي مشروع',
           );
 
           return;
@@ -435,11 +440,13 @@ class _LoginPageState extends State<LoginPage> {
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(
-            builder: (_) =>
-                DriverPage(
-              projectIds:
-                  projectIds,
-            ),
+            builder: (_) => isSupervisor
+                ? SupervisorPage(
+                    projectIds: projectIds,
+                  )
+                : DriverPage(
+                    projectIds: projectIds,
+                  ),
           ),
           (route) => false,
         );

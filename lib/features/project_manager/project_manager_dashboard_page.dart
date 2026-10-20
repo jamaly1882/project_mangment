@@ -3,9 +3,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
+import '../../core/utils/costs.dart';
 import '../../core/widgets/app_widgets.dart';
+import '../../core/widgets/cost_widgets.dart';
 import 'items_page.dart';
 
 // =============================================================
@@ -348,6 +351,117 @@ class ProjectManagerDashboardPage extends StatelessWidget {
   }
 
   // =============================================================
+  // بطاقة تكاليف المشروع (محسوبة من تكاليف البنود)
+  // =============================================================
+
+  Widget _buildCostsSection(Map<String, dynamic> project) {
+    return FutureBuilder<ProjectCostTotals>(
+      future: ProjectCostSync.totalsFor(projectId),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return AppError(
+            message:
+                'تعذر حساب تكاليف المشروع من بنوده:\n${snapshot.error}',
+          );
+        }
+
+        final totals =
+            snapshot.data ?? ProjectCostTotals.empty();
+
+        final storedTotal = ProjectCosts.totalOf(project);
+
+        final plannedTotal = snapshot.hasData
+            ? totals.total
+            : storedTotal;
+
+        // الإجمالي المعروض: الفعلي عند توفره، وإلا المخطط.
+        final displayTotal = snapshot.hasData
+            ? totals.displayTotal
+            : storedTotal;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            CostSummaryCard(
+              title: totals.hasActual
+                  ? 'تكاليف المشروع — الفعلي مقابل المخطط'
+                  : 'تكاليف المشروع — محسوبة من بنوده',
+              breakdown: !snapshot.hasData
+                  ? ProjectCosts.breakdownOf(project)
+                  : (totals.hasActual
+                      ? totals.actualBreakdown
+                      : totals.breakdown),
+              reference: snapshot.hasData && totals.hasActual
+                  ? totals.breakdown
+                  : null,
+              referenceLabel: 'المخطط',
+              total: displayTotal,
+              icon: Icons.payments_outlined,
+            ),
+
+            AppSpacing.verticalMd,
+
+            AppCard(
+              color: AppColors.background,
+              child: Column(
+                crossAxisAlignment:
+                    CrossAxisAlignment.stretch,
+                children: [
+                  AppInfoRow(
+                    icon: Icons.list_alt,
+                    label: 'بنود المشروع',
+                    value: snapshot.hasData
+                        ? '${totals.itemCount} بند، '
+                            '${totals.costedItemCount} له تكلفة '
+                            'مخططة، و${totals.actualItemCount} '
+                            'له تكلفة فعلية'
+                        : 'جاري الحساب...',
+                  ),
+
+                  AppSpacing.verticalXs,
+
+                  AppInfoRow(
+                    icon: Icons.timeline_outlined,
+                    label: 'الإجمالي المخطط (إدخال مدير المشروع)',
+                    value: ProjectCosts.formatMoney(plannedTotal),
+                  ),
+
+                  AppSpacing.verticalXs,
+
+                  AppInfoRow(
+                    icon: Icons.check_circle_outline,
+                    label: 'الإجمالي الفعلي (تسجيل مشرف البند)',
+                    value: ProjectCosts.formatMoney(
+                      totals.actualTotal,
+                    ),
+                  ),
+
+                  AppSpacing.verticalXs,
+
+                  AppInfoRow(
+                    icon: Icons.calculate_outlined,
+                    label: 'إجمالي تكلفة المشروع المعتمد',
+                    value: ProjectCosts.formatMoney(displayTotal),
+                  ),
+
+                  AppSpacing.verticalSm,
+
+                  const Text(
+                    'لا تُدخل تكاليف المشروع يدويًا: المخطط يدخله '
+                    'مدير المشروع من صفحة تفاصيل البند، والفعلي يسجله '
+                    'مشرف البند من صفحته، ويُعتمد الفعلي عند توفره.',
+                    style: AppTextStyles.bodySecondary,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // =============================================================
   // بطاقة إحصائية: عدد البنود
   // =============================================================
 
@@ -579,7 +693,22 @@ class ProjectManagerDashboardPage extends StatelessWidget {
                   AppSpacing.verticalXl,
 
                   // =================================================
-                  // 2. عدد البنود
+                  // 2. تكاليف المشروع
+                  // =================================================
+
+                  Text(
+                    'تكاليف المشروع',
+                    style: AppTextStyles.sectionTitle,
+                  ),
+
+                  AppSpacing.verticalMd,
+
+                  _buildCostsSection(project),
+
+                  AppSpacing.verticalXl,
+
+                  // =================================================
+                  // 3. عدد البنود
                   // =================================================
 
                   Text(
@@ -602,7 +731,7 @@ class ProjectManagerDashboardPage extends StatelessWidget {
                   AppSpacing.verticalXl,
 
                   // =================================================
-                  // 3. صفحة البنود
+                  // 4. صفحة البنود
                   // =================================================
 
                   Text(
