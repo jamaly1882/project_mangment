@@ -1005,12 +1005,12 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           AppInfoRow(
             label: 'مخصص لبقية البنود',
             value: ProjectCosts.formatMoney(othersTotal),
-            icon: Icons.playlist_add_check_outlined,
+            icon: Icons.playlist_add_check,
           ),
           AppInfoRow(
             label: 'المتبقي لهذا البند',
             value: ProjectCosts.formatMoney(remaining < 0 ? 0 : remaining),
-            icon: Icons.savings_outlined,
+            icon: Icons.account_balance_wallet_outlined,
           ),
         ],
       ),

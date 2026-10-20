@@ -427,7 +427,7 @@ class ProjectManagerDashboardPage extends StatelessWidget {
                     AppInfoRow(
                       icon: remaining < 0
                           ? Icons.warning_amber_rounded
-                          : Icons.savings_outlined,
+                          : Icons.account_balance_wallet_outlined,
                       label: remaining < 0
                           ? 'تجاوز المخطط'
                           : 'المتبقي من المخطط',
