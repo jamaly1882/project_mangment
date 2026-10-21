@@ -378,9 +378,11 @@ class CostLineSchema {
   }
 
   /// الحقل الذي يسمّي السطر (الاسم/المهنة/نوع الوقود).
+  /// أي حقل غير رقمي من الأعلى: نص أو قائمة قيم،
+  /// لأن نوع الوقود في المحروقات حقل اختيار لا نص.
   String get titleKey {
     for (final field in fields) {
-      if (field.kind == CostFieldKind.text) return field.key;
+      if (field.kind != CostFieldKind.number) return field.key;
     }
 
     return fields.isEmpty ? '' : fields.first.key;
@@ -815,8 +817,9 @@ class CostLinesDiff {
   double get overrun {
     double sum = 0;
 
-    for (final row in rows.where((r) => !r.isCategorySummary)) {
-      if (r.delta > 0) sum += r.delta;
+    for (final row in rows) {
+      if (row.isCategorySummary) continue;
+      if (row.delta > 0) sum += row.delta;
     }
 
     return sum;

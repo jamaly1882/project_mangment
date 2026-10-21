@@ -2083,14 +2083,12 @@ class _CredentialBox
     extends StatelessWidget {
   final String value;
   final String tooltip;
-  final bool obscure;
   final VoidCallback onCopy;
 
   const _CredentialBox({
     required this.value,
     required this.tooltip,
     required this.onCopy,
-    this.obscure = false,
   });
 
   @override

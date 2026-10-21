@@ -175,57 +175,6 @@ class _AddItemPageState extends State<AddItemPage> {
     );
   }
 
-  List<Map<String, dynamic>> _currentTypes(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> definitionDocs,
-  ) {
-    final selected = definitionDocs.where(
-      (doc) => doc.id == _selectedItemDefinitionId,
-    );
-
-    if (selected.isEmpty) return const [];
-
-    final data = selected.first.data();
-    final rawTypes = data['types'];
-
-    if (rawTypes is List) {
-      return rawTypes
-          .whereType<Map>()
-          .map(
-            (type) => Map<String, dynamic>.from(type),
-          )
-          .where(
-            (type) => type['active'] != false,
-          )
-          .toList();
-    }
-
-    return const [];
-  }
-
-  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _loadTypesFromSubcollection() async {
-    final id = _selectedItemDefinitionId;
-    if (id == null) {
-      return <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    }
-
-    try {
-      final snapshot = await _firestore
-          .collection('item_definitions')
-          .doc(id)
-          .collection('types')
-          .where('active', isEqualTo: true)
-          .get();
-
-      return List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
-        snapshot.docs,
-      );
-    } catch (e) {
-      debugPrint('تعذر تحميل أنواع البند: $e');
-      return <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    }
-  }
-
   Widget _buildDefinitionDropdown() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _firestore
