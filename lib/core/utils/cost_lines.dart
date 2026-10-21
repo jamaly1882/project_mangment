@@ -19,6 +19,34 @@ import 'costs.dart';
 // مجاميع الأقسام تُكتب في نفس الحقول القديمة (materialsCost ... totalCost)
 // حتى تستمر قائمة البنود واللوحة وتقرير المحاسب ومجاميع المشروع بدون تعديل.
 
+/// وحدات المواد المقترحة، مستقلة عن وحدة البند التعاقدية.
+class MaterialUnits {
+  static const all = ['كيس', 'م³', 'لتر', 'طن', 'كجم', 'متر طولي',
+    'قطعة', 'م²', 'كرتون', 'جالون', 'متر', 'علبة'];
+
+  static List<String> forName(String name) {
+    final normalized = name.trim().replaceAll('أ', 'ا').replaceAll('إ', 'ا');
+    const groups = <String, List<String>>{
+      'اسمنت': ['كيس'],
+      'رمل': ['م³'], 'نيسة': ['م³'], 'حصى': ['م³'], 'بحص': ['م³'],
+      'ماء': ['لتر', 'م³'],
+      'الواح': ['قطعة'],
+      'زوايا': ['متر', 'قطعة'],
+      'حديد': ['طن', 'كجم'], 'خشب': ['م³', 'متر طولي'],
+      'طوب': ['قطعة'], 'بلك': ['قطعة'],
+      'بلاط': ['م²', 'كرتون'], 'دهان': ['لتر', 'جالون'],
+      'انابيب': ['متر طولي', 'قطعة'],
+      'اسلاك': ['متر'], 'كابل': ['متر'], 'كابلات': ['متر'],
+      'مسامير': ['كجم', 'علبة'], 'حجر': ['م³', 'م²'],
+      'خرسانة': ['م³'],
+    };
+    for (final entry in groups.entries) {
+      if (normalized.contains(entry.key)) return entry.value;
+    }
+    return all;
+  }
+}
+
 /// أقسام جداول التكلفة.
 enum CostLineKind { material, labor, equipment, fuel }
 
@@ -141,9 +169,9 @@ class CostLineSchema {
         CostLineField(
           key: 'unit',
           label: 'الوحدة *',
-          kind: CostFieldKind.text,
+          kind: CostFieldKind.choice,
+          choices: MaterialUnits.all,
           required: true,
-          defaultValue: 'وحدة',
           flex: 1,
         ),
         CostLineField(
@@ -155,7 +183,7 @@ class CostLineSchema {
         ),
         CostLineField(
           key: 'quantity',
-          label: 'الكمية',
+          label: 'الكمية / العدد',
           kind: CostFieldKind.number,
           flex: 1,
         ),
@@ -298,7 +326,8 @@ class CostLineSchema {
         CostLineField(
           key: 'unit',
           label: 'الوحدة',
-          kind: CostFieldKind.text,
+          kind: CostFieldKind.choice,
+          choices: ['لتر'],
           defaultValue: 'لتر',
           flex: 1,
         ),

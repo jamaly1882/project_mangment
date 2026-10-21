@@ -85,12 +85,18 @@ class _CostLineRow {
     return field.defaultValue ?? '';
   }
 
+  VoidCallback? _costListener;
+
   void attach(void Function() onChange) {
     for (final controller in controllers.values) {
       controller.addListener(onChange);
     }
 
-    costController.addListener(onChange);
+    _costListener = () {
+      manual = true;
+      onChange();
+    };
+    costController.addListener(_costListener!);
   }
 
   void detach(void Function() onChange) {
@@ -98,7 +104,8 @@ class _CostLineRow {
       controller.removeListener(onChange);
     }
 
-    costController.removeListener(onChange);
+    if (_costListener != null) costController.removeListener(_costListener!);
+    _costListener = null;
   }
 
   void dispose() {
@@ -160,24 +167,17 @@ class _CostLineRow {
   /// يحدّث خانة التكلفة من المحسوب ما لم يثبّتها المستخدم يدويًا.
   void syncCost(CostLineSchema schema) {
     final auto = computed(schema);
-    final typed = ProjectCosts.parseOptional(
-      costController.text.trim(),
-    );
-
-    if (typed != null && (typed - auto).abs() >= 0.01) {
-      manual = true;
-      return;
-    }
-
-    manual = false;
+    if (manual) return;
 
     final wanted = ProjectCosts.toEditText(auto);
 
     if (costController.text != wanted) {
+      if (_costListener != null) costController.removeListener(_costListener!);
       costController.value = TextEditingValue(
         text: wanted,
         selection: TextSelection.collapsed(offset: wanted.length),
       );
+      if (_costListener != null) costController.addListener(_costListener!);
     }
   }
 }
@@ -289,6 +289,9 @@ class CostLinesEditorController extends ChangeNotifier {
     if (row == null) return;
 
     row.controllers[key]?.text = value;
+    if (schema.kind == CostLineKind.material && key == 'materialName') {
+      row.controllers['unit']?.text = MaterialUnits.forName(value).first;
+    }
     _onChange();
   }
 
@@ -344,7 +347,7 @@ class CostLinesEditorController extends ChangeNotifier {
     row.id = id;
 
     if (nameKey != null) {
-      row.controllers[nameKey]?.text = name;
+      setText(index, nameKey, name);
     }
 
     _onChange();
@@ -682,13 +685,17 @@ class _CostLinesEditorState extends State<CostLinesEditor> {
     CostLineField field,
   ) {
     if (field.kind == CostFieldKind.choice) {
+      final current = controller.textOf(index, field.key);
+      final suggested = schema.kind == CostLineKind.material && field.key == 'unit'
+          ? MaterialUnits.forName(controller.textOf(index, 'materialName'))
+          : field.choices;
+      // نعرض الوحدة القديمة كما هي دون تحويل كمياتها ضمنيًا.
+      final choices = <String>{...suggested, if (current.isNotEmpty) current}.toList();
       return AppDropdown<String>(
         label: field.label,
-        value: field.choices.contains(controller.textOf(index, field.key))
-            ? controller.textOf(index, field.key)
-            : (field.choices.isEmpty ? null : field.choices.first),
+        value: current.isEmpty ? null : current,
         items: [
-          for (final choice in field.choices)
+          for (final choice in choices)
             DropdownMenuItem<String>(
               value: choice,
               child: Text(choice),
@@ -713,7 +720,11 @@ class _CostLinesEditorState extends State<CostLinesEditor> {
       controller: controller.textController(index, field.key),
       label: field.label,
       hint: field.hint,
-      onChanged: (_) {},
+      onChanged: (value) {
+        if (schema.kind == CostLineKind.material && field.key == 'materialName') {
+          controller.setText(index, 'unit', MaterialUnits.forName(value).first);
+        }
+      },
     );
   }
 
