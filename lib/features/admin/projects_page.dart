@@ -712,6 +712,23 @@ class _ProjectCardState
   }
 
   /// سطر قسم واحد في بطاقة المشروع: المخطط، ومع الفعلي إن وُجد.
+  /// ملخص عدد أسطر التكلفة المفصّلة في بنود المشروع.
+  String? _costsLineSummary(Map<String, dynamic> data) {
+    final planned = data['costsLineCount'];
+    final actual = data['actualCostsLineCount'];
+
+    final plannedCount = planned is num ? planned.toInt() : 0;
+    final actualCount = actual is num ? actual.toInt() : 0;
+
+    if (plannedCount <= 0 && actualCount <= 0) return null;
+
+    if (actualCount > 0) {
+      return '$plannedCount سطر مخطط، $actualCount سطر فعلي';
+    }
+
+    return '$plannedCount سطر مخطط';
+  }
+
   String _costsCategoryValue(
     Map<String, dynamic> data,
     CostCategory category,
@@ -1129,6 +1146,13 @@ class _ProjectCardState
                 ProjectCosts.totalOf(data),
               ),
             ),
+
+            if (_costsLineSummary(data) != null)
+              AppInfoRow(
+                icon: Icons.list_alt,
+                label: 'أسطر التكلفة المفصّلة',
+                value: _costsLineSummary(data)!,
+              ),
 
             if (ProjectCosts.actualTotalOf(data) > 0)
               AppInfoRow(

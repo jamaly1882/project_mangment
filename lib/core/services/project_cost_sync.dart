@@ -24,6 +24,8 @@ class ProjectCostTotals {
     this.effectiveBreakdown = const <String, double>{},
     this.effectiveTotal = 0,
     this.actualItemCount = 0,
+    this.lineCount = 0,
+    this.actualLineCount = 0,
   });
 
   /// مبالغ كل قسم المخططة: materials / labor / equipment / fuel
@@ -53,9 +55,18 @@ class ProjectCostTotals {
   /// عدد البنود التي سجل مشرفها تكلفة فعلية.
   final int actualItemCount;
 
+  /// عدد أسطر التكلفة المفصّلة المخططة في بنود المشروع.
+  final int lineCount;
+
+  /// عدد أسطر التكلفة الفعلية التي سجلها مشرفو البنود.
+  final int actualLineCount;
+
   bool get hasCosts => costedItemCount > 0 && total > 0;
 
   bool get hasActual => actualItemCount > 0 && actualTotal > 0;
+
+  /// هل للمشروع تكاليف مفصّلة بأسطر؟
+  bool get hasLines => lineCount > 0 || actualLineCount > 0;
 
   /// المبلغ الذي يُعرض على أنه «إجمالي تكلفة المشروع»:
   /// الفعلي عند توفره، وإلا المخطط.
@@ -86,6 +97,8 @@ class ProjectCostTotals {
       'costsItemCount': costedItemCount,
       'costsActualItemCount': actualItemCount,
       'costsProjectItemCount': itemCount,
+      'costsLineCount': lineCount,
+      'actualCostsLineCount': actualLineCount,
       'costsUpdatedAt': FieldValue.serverTimestamp(),
     };
 
@@ -125,6 +138,8 @@ class ProjectCostTotals {
     int costed = 0;
     int actuals = 0;
     int count = 0;
+    int lineCount = 0;
+    int actualLineCount = 0;
 
     for (final item in items) {
       count++;
@@ -135,6 +150,9 @@ class ProjectCostTotals {
 
       if (ProjectCosts.totalOf(item) > 0) costed++;
       if (ProjectCosts.hasActualValues(item)) actuals++;
+
+      lineCount += _count(item['costsLineCount']);
+      actualLineCount += _count(item['actualCostsLineCount']);
 
       for (final category in ProjectCosts.categories) {
         final key = category.key;
@@ -161,8 +179,12 @@ class ProjectCostTotals {
       effectiveBreakdown: effectiveBreakdown,
       effectiveTotal: effectiveTotal,
       actualItemCount: actuals,
+      lineCount: lineCount,
+      actualLineCount: actualLineCount,
     );
   }
+
+  static int _count(dynamic value) => value is num ? value.toInt() : 0;
 
   static Map<String, double> _zeroBreakdown() {
     return <String, double>{
