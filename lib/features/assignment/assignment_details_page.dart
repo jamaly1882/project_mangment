@@ -13,16 +13,14 @@ import '../../core/widgets/cost_widgets.dart';
 
 /// صفحة مشرف البند.
 ///
-/// يسجّل المشرف هنا:
-/// 1) الاستهلاك الفعلي (وقود/زيت/ساعات عمل).
-/// 2) التكاليف الفعلية للبند بأقسامها الأربعة:
+/// يسجّل المشرف هنا التكاليف الفعلية للبند بأقسامها الأربعة:
 ///    المواد، أجور العمالة، المعدات، المحروقات.
 ///
 /// ما يدخله المشرف هو «فعلي»، أما ما يدخله مدير المشروع في صفحة
 /// تفاصيل البند فهو «مخطط». وبعد الحفظ تُجمَّع تكاليف المشروع تلقائيًا
 /// من بنوده (لا تُدخل تكاليف المشروع يدويًا أبدًا).
 ///
-/// لا تعدّل هذه الصفحة كمية تنفيذ البند ولا قراءة العداد.
+/// لا تعدّل هذه الصفحة الاستهلاك ولا كمية تنفيذ البند ولا قراءة العداد.
 class AssignmentDetailsPage extends StatefulWidget {
   final String projectId;
   final String itemId;
@@ -41,14 +39,6 @@ class AssignmentDetailsPage extends StatefulWidget {
 class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
-
-  // ============================================================
-  // حقول الاستهلاك الفعلي
-  // ============================================================
-
-  final TextEditingController _fuelController = TextEditingController();
-  final TextEditingController _oilController = TextEditingController();
-  final TextEditingController _workingHoursController = TextEditingController();
 
   // ============================================================
   // أسطر التكاليف الفعلية (نفس أقسام مدير المشروع الأربعة)
@@ -87,10 +77,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
 
   @override
   void dispose() {
-    _fuelController.dispose();
-    _oilController.dispose();
-    _workingHoursController.dispose();
-
     for (final editor in _costEditors.values) {
       editor.dispose();
     }
@@ -111,12 +97,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
     if (value is num) return value.toDouble();
     if (value == null) return null;
     return double.tryParse(value.toString().trim().replaceAll(',', '.'));
-  }
-
-  double? _parseNonNegative(String value) {
-    final parsed = _toDouble(value);
-    if (parsed == null || parsed < 0) return null;
-    return parsed;
   }
 
   String _formatNumber(dynamic value) {
@@ -362,16 +342,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
       );
       _defaultOilQuantity = _toDouble(details['defaultOilQuantity']);
 
-      // الاستهلاك الفعلي المحفوظ.
-      final fuel = _toDouble(details['consumedFuelQuantity']);
-      final oil = _toDouble(details['consumedOilQuantity']);
-      final hours = _toDouble(details['executedWorkingHours']);
-
-      _fuelController.text = fuel == null ? '' : _formatNumber(fuel);
-      _oilController.text = oil == null ? '' : _formatNumber(oil);
-      _workingHoursController.text =
-          hours == null ? '' : _formatNumber(hours);
-
       // أسطر التكاليف الفعلية المحفوظة، مع ترحيل الرقم المفرد القديم
       // إلى سطر واحد قابل للتعديل.
       final costSource =
@@ -460,31 +430,11 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   }
 
   // ============================================================
-  // الحفظ: الاستهلاك + التكاليف الفعلية
+  // الحفظ: التكاليف الفعلية
   // ============================================================
 
-  Future<void> _saveExecutionData() async {
+  Future<void> _saveActualCosts() async {
     if (_saving) return;
-
-    final fuelText = _fuelController.text.trim();
-    final oilText = _oilController.text.trim();
-    final hoursText = _workingHoursController.text.trim();
-
-    if (fuelText.isEmpty || oilText.isEmpty || hoursText.isEmpty) {
-      AppWidgets.showWarning(
-        context,
-        'يرجى إدخال كمية الوقود والزيت وساعات العمل الفعلية.',
-      );
-      return;
-    }
-
-    final fuel = _parseNonNegative(fuelText);
-    final oil = _parseNonNegative(oilText);
-    final hours = _parseNonNegative(hoursText);
-    if (fuel == null || oil == null || hours == null) {
-      AppWidgets.showWarning(context, 'أدخل كميات صحيحة غير سالبة.');
-      return;
-    }
 
     // التحقق من أسطر التكاليف الفعلية إن أدخل المشرف شيئًا منها.
     if (_actualLines.isNotEmpty) {
@@ -541,35 +491,11 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
         }
       }
 
-      final fuelExceeded =
-          _defaultFuelQuantity != null && fuel > _defaultFuelQuantity!;
-      final oilExceeded =
-          _defaultOilQuantity != null && oil > _defaultOilQuantity!;
-      final hoursExceeded =
-          _defaultWorkingHours != null && hours > _defaultWorkingHours!;
-      final exceedsPlan = fuelExceeded || oilExceeded || hoursExceeded;
-
-      // الاستهلاك الفعلي لا يُرفض إذا تجاوز المخطط؛ يُحفظ ويُعلَّم للمراجعة.
+      // تحديث التكاليف فقط مع إبقاء بيانات الاستهلاك السابقة دون تغيير.
       final detailsUpdate = <String, dynamic>{
-        'consumedFuelQuantity': fuel,
-        'consumedOilQuantity': oil,
-        'executedWorkingHours': hours,
-        'fuelExceededPlanned': fuelExceeded,
-        'oilExceededPlanned': oilExceeded,
-        'workingHoursExceededPlanned': hoursExceeded,
-        'consumptionReviewStatus':
-            exceedsPlan ? 'pending_review' : 'within_plan',
-        'consumptionUpdatedBy': user.uid,
-        'consumptionUpdatedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
-
       final itemUpdate = <String, dynamic>{
-        'consumedFuelQuantity': fuel,
-        'consumedOilQuantity': oil,
-        'executedWorkingHours': hours,
-        'consumptionReviewStatus':
-            exceedsPlan ? 'pending_review' : 'within_plan',
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -632,7 +558,7 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
           ProjectCosts.toDouble(actualData[ProjectCosts.actualTotalField]);
 
       final successMessage = <String>[
-        'تم حفظ الاستهلاك الفعلي بنجاح.',
+        'تم حفظ التكاليف الفعلية بنجاح.',
         if (actualTotal > 0)
           'تكلفة البند الفعلية: '
               '${ProjectCosts.formatMoney(actualTotal)}',
@@ -641,18 +567,10 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
               '${ProjectCosts.formatMoney(projectTotals.displayTotal)}',
       ].join('\n');
 
-      if (exceedsPlan) {
-        AppWidgets.showWarning(
-          context,
-          'تم الحفظ، لكن الاستهلاك تجاوز كمية مخططة واحدة أو أكثر '
-          'ويحتاج إلى مراجعة.\n$successMessage',
-        );
-      } else {
-        AppWidgets.showSuccess(context, successMessage);
-      }
+      AppWidgets.showSuccess(context, successMessage);
     } catch (e) {
       if (!mounted) return;
-      AppWidgets.showError(context, 'تعذر حفظ بيانات الاستهلاك:\n$e');
+      AppWidgets.showError(context, 'تعذر حفظ التكاليف الفعلية:\n$e');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -700,7 +618,7 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
         children: [
           AppPageHeader(
             title: _itemName(item),
-            subtitle: 'بيانات البند والاستهلاك الفعلي والتكاليف الفعلية',
+            subtitle: 'بيانات البند والتكاليف الفعلية',
             icon: Icons.supervisor_account_outlined,
           ),
           AppSpacing.verticalMd,
@@ -826,8 +744,8 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
           ),
           AppSpacing.verticalMd,
           const Text(
-            'إذا تجاوز الاستهلاك الفعلي المخطط فسيتم حفظه مع علامة للمراجعة، '
-            'ولن تُغيّر هذه الصفحة كمية التنفيذ أو قراءة العداد.',
+            'هذه الكميات المخططة للعرض فقط. لا تُغيّر هذه الصفحة '
+            'الاستهلاك أو كمية التنفيذ أو قراءة العداد.',
             style: AppTextStyles.bodySecondary,
           ),
         ],
@@ -1004,78 +922,20 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
     );
   }
 
-  Widget _buildActualForm() {
-    final details = _detailsData ?? <String, dynamic>{};
-    final exceedsPlan = details['fuelExceededPlanned'] == true ||
-        details['oilExceededPlanned'] == true ||
-        details['workingHoursExceededPlanned'] == true;
-
+  Widget _buildSaveCard() {
     return AppCard(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const AppSectionTitle(
-            title: 'الاستهلاك الفعلي',
-            icon: Icons.edit_note_outlined,
-          ),
-          AppSpacing.verticalMd,
-          if (exceedsPlan) ...[
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.warning.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: AppColors.warning.withValues(alpha: 0.35),
-                ),
-              ),
-              child: const Text(
-                'هناك قيمة تجاوزت المخطط السابق. تم حفظها للتوثيق '
-                'وهي بحاجة إلى مراجعة.',
-                style: AppTextStyles.bodySecondary,
-              ),
-            ),
-            AppSpacing.verticalMd,
-          ],
-          AppNumberField(
-            controller: _fuelController,
-            label: 'كمية الوقود المستهلكة فعليًا *',
-            hint: 'أدخل إجمالي كمية الوقود المستهلكة',
-            suffixText: 'لتر',
-            prefixIcon: Icons.local_gas_station_outlined,
-          ),
-          AppSpacing.verticalMd,
-          AppNumberField(
-            controller: _oilController,
-            label: 'كمية الزيت المستهلكة فعليًا *',
-            hint: 'أدخل إجمالي كمية الزيت المستهلكة',
-            suffixText: 'لتر',
-            prefixIcon: Icons.oil_barrel_outlined,
-          ),
-          AppSpacing.verticalMd,
-          AppNumberField(
-            controller: _workingHoursController,
-            label: 'ساعات العمل الفعلية *',
-            hint: 'أدخل إجمالي ساعات العمل',
-            suffixText: 'ساعة',
-            prefixIcon: Icons.access_time_outlined,
-          ),
-          AppSpacing.verticalMd,
-          const Text(
-            'تُحفظ هذه القيم كإجماليات حالية لهذا التكليف. لا تُدخل قراءة '
-            'العداد هنا؛ قراءة العداد لها شاشة مستقلة.',
-            style: AppTextStyles.bodySecondary,
-          ),
-          AppSpacing.verticalLg,
           AppButton(
             label: _saving
                 ? 'جارٍ الحفظ...'
-                : 'حفظ الاستهلاك والتكاليف الفعلية',
+                : 'حفظ التكاليف الفعلية',
             icon: Icons.save_outlined,
             loading: _saving,
             expanded: true,
-            onPressed: _saving ? null : _saveExecutionData,
+            onPressed: _saving ? null : _saveActualCosts,
           ),
           AppSpacing.verticalSm,
           const Text(
@@ -1141,7 +1001,7 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
                       AppSpacing.verticalMd,
                       _buildLimitsCard(),
                       AppSpacing.verticalMd,
-                      _buildActualForm(),
+                      _buildSaveCard(),
                       AppSpacing.verticalXl,
                     ],
                   ),
