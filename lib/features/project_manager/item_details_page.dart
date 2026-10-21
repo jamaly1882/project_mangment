@@ -36,9 +36,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
 
   final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
-  final TextEditingController _defaultFuelQuantityController = TextEditingController();
-  final TextEditingController _defaultOilQuantityController = TextEditingController();
-  final TextEditingController _defaultWorkingHoursController = TextEditingController();
 
   /// كمية العقد — يمكن تعديلها من نفس الصفحة.
   final TextEditingController _contractQuantityController =
@@ -88,7 +85,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   String? _selectedEquipmentCode;
   String? _selectedEquipmentWorkUnit;
   double? _equipmentMeterAtAssignment;
-  String? _selectedFuelType;
 
   /// مجموع تكاليف بقية بنود المشروع،
   /// لأن تكلفة المشروع تُحسب تلقائيًا من بنوده.
@@ -97,8 +93,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
 
   /// التكاليف الفعلية لبقية بنود المشروع (ما يسجله مشرفو البنود).
   Map<String, double> _otherItemsEffective = <String, double>{};
-
-  static const List<String> _fuelTypes = ['ديزل', 'بترول'];
 
   CollectionReference<Map<String, dynamic>> get _equipmentCollection =>
       _firestore.collection('equipment');
@@ -113,9 +107,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   void dispose() {
     _descriptionController.dispose();
     _notesController.dispose();
-    _defaultFuelQuantityController.dispose();
-    _defaultOilQuantityController.dispose();
-    _defaultWorkingHoursController.dispose();
     _contractQuantityController.dispose();
 
     for (final editor in _costEditors.values) {
@@ -203,12 +194,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
     return double.tryParse(value.toString().trim().replaceAll(',', '.'));
   }
 
-  double? _parsePositiveDouble(String value) {
-    final result = _toDouble(value);
-    if (result == null || result <= 0) return null;
-    return result;
-  }
-
   Future<void> _loadItem() async {
     if (mounted && !_loadingItem) {
       setState(() => _loadingItem = true);
@@ -241,10 +226,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
 
       _descriptionController.text = _stringValue(details['description']);
       _notesController.text = _stringValue(details['notes']);
-      _defaultFuelQuantityController.text =
-          _stringValue(details['defaultFuelQuantity'] ?? details['defaultDieselQuantity']);
-      _defaultOilQuantityController.text = _stringValue(details['defaultOilQuantity']);
-      _defaultWorkingHoursController.text = _stringValue(details['defaultWorkingHours']);
 
       // مشرف البند (مع دعم السجل القديم للسائق).
       final supervisorId = _stringValue(
@@ -308,9 +289,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           ? null
           : _stringValue(details['equipmentWorkUnit']);
       _equipmentMeterAtAssignment = _toDouble(details['equipmentCurrentMeterAtAssignment']);
-
-      final fuelType = _stringValue(details['fuelType']);
-      _selectedFuelType = _fuelTypes.contains(fuelType) ? fuelType : null;
 
       String? projectName;
 
@@ -492,28 +470,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       return;
     }
 
-    if (_selectedFuelType == null || _selectedFuelType!.isEmpty) {
-      AppWidgets.showWarning(context, 'يرجى اختيار نوع الوقود');
-      return;
-    }
-
-    final fuelQuantity = _parsePositiveDouble(_defaultFuelQuantityController.text);
-    final oilQuantity = _parsePositiveDouble(_defaultOilQuantityController.text);
-    final workingHours = _parsePositiveDouble(_defaultWorkingHoursController.text);
-
-    if (fuelQuantity == null) {
-      AppWidgets.showWarning(context, 'أدخل كمية الوقود المخططة بشكل صحيح');
-      return;
-    }
-    if (oilQuantity == null) {
-      AppWidgets.showWarning(context, 'أدخل كمية الزيت المخططة بشكل صحيح');
-      return;
-    }
-    if (workingHours == null) {
-      AppWidgets.showWarning(context, 'أدخل ساعات العمل المخططة بشكل صحيح');
-      return;
-    }
-
     final currentUser = _auth.currentUser;
     if (currentUser == null) {
       AppWidgets.showError(context, 'المستخدم غير مسجل الدخول');
@@ -619,12 +575,9 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         'equipmentCode': equipmentCode,
         'equipmentWorkUnit': equipmentWorkUnit,
         'equipmentCurrentMeterAtAssignment': equipmentCurrentMeter,
-        'fuelType': _selectedFuelType,
-        // defaultFuelQuantity هو الاسم الأساسي، ونحفظ الاسم القديم للتوافق مع النسخة الحالية.
-        'defaultFuelQuantity': fuelQuantity,
-        'defaultDieselQuantity': fuelQuantity,
-        'defaultOilQuantity': oilQuantity,
-        'defaultWorkingHours': workingHours,
+        // صفحة المدير لم تعد تدخل نوع الوقود والكميات المخططة: تُسجَّل
+        // أسطرًا في قسم «تكلفة استهلاك المحروقات» أعلاه. نتوقف عن الكتابة
+        // فقط، فلا تُمسح القيم القديمة المحفوظة في البنود الحالية.
         ...costData,
         'detailsAdded': true,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -640,10 +593,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         'equipmentName': equipmentName,
         'equipmentCode': equipmentCode,
         'active': true,
-        'fuelType': _selectedFuelType,
-        'defaultFuelQuantity': fuelQuantity,
-        'defaultOilQuantity': oilQuantity,
-        'defaultWorkingHours': workingHours,
         'updatedAt': FieldValue.serverTimestamp(),
         'updatedBy': currentUser.uid,
       };
@@ -1325,52 +1274,22 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const AppSectionTitle(
-            title:
-                'المسؤول عن البند: مشرف البند والمعدة والاستهلاك المخطط',
+            title: 'المسؤول عن البند: مشرف البند والمعدة',
             icon: Icons.settings_outlined,
           ),
           AppSpacing.verticalSm,
           const Text(
-            'اختر المعدة من حصر المعدات، ثم مشرف البند. هذه الكميات مخططة للتكليف؛ مشرف البند يسجل الاستهلاك الفعلي لاحقًا، والمهندس يسجل كمية البند المنفذة بشكل مستقل.',
+            'اختر المعدة من حصر المعدات، ثم مشرف البند. الاستهلاك المخطط '
+            '(الوقود والزيت وساعات العمل) لم يعد يُدخل هنا: يُسجَّل أسطرًا في '
+            'قسم «تكلفة استهلاك المحروقات» ضمن تكاليف البند، ويسجّل مشرف '
+            'البند المستهلك الفعلي من صفحته، ويسجّل المهندس كمية البند '
+            'المنفذة بشكل مستقل.',
             style: AppTextStyles.bodySecondary,
           ),
           AppSpacing.verticalMd,
           _buildEquipmentDropdown(),
           AppSpacing.verticalMd,
           _buildSupervisorDropdown(),
-          AppSpacing.verticalMd,
-          AppDropdown<String>(
-            label: 'نوع الوقود *',
-            hint: 'اختر نوع الوقود',
-            value: _selectedFuelType,
-            prefixIcon: Icons.local_gas_station_outlined,
-            items: _fuelTypes.map((fuel) => DropdownMenuItem<String>(value: fuel, child: Text(fuel))).toList(),
-            onChanged: (value) => setState(() => _selectedFuelType = value),
-          ),
-          AppSpacing.verticalMd,
-          AppNumberField(
-            controller: _defaultFuelQuantityController,
-            label: 'كمية الوقود المخططة *',
-            hint: 'أدخل الكمية المخططة',
-            suffixText: 'لتر',
-            prefixIcon: Icons.local_gas_station_outlined,
-          ),
-          AppSpacing.verticalMd,
-          AppNumberField(
-            controller: _defaultOilQuantityController,
-            label: 'كمية الزيت المخططة *',
-            hint: 'أدخل كمية الزيت المخططة',
-            suffixText: 'لتر',
-            prefixIcon: Icons.oil_barrel_outlined,
-          ),
-          AppSpacing.verticalMd,
-          AppNumberField(
-            controller: _defaultWorkingHoursController,
-            label: 'ساعات العمل المخططة *',
-            hint: 'أدخل ساعات العمل المخططة',
-            suffixText: 'ساعة',
-            prefixIcon: Icons.schedule_outlined,
-          ),
           AppSpacing.verticalMd,
           Container(
             padding: const EdgeInsets.all(12),
