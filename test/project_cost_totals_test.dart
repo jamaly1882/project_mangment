@@ -93,6 +93,32 @@ void main() {
       expect(totals.breakdown['labor'], 0.0);
     });
 
+    test('يجمع عدد أسطر التكلفة المخططة والفعلية', () {
+      final totals = ProjectCostTotals.fromItems([
+        <String, dynamic>{'materialsCost': 10.0, 'costsLineCount': 3},
+        <String, dynamic>{
+          'laborCost': 20.0,
+          'costsLineCount': 2,
+          'actualCostsLineCount': 4,
+        },
+        <String, dynamic>{'fuelCost': 5.0},
+      ]);
+
+      expect(totals.lineCount, 5);
+      expect(totals.actualLineCount, 4);
+      expect(totals.hasLines, isTrue);
+    });
+
+    test('بند بلا أسطر لا يضيف عددًا', () {
+      final totals = ProjectCostTotals.fromItems([
+        <String, dynamic>{'materialsCost': 10.0, 'costsLineCount': null},
+        <String, dynamic>{'materialsCost': 1.0, 'costsLineCount': '2'},
+      ]);
+
+      expect(totals.lineCount, 0);
+      expect(totals.hasLines, isFalse);
+    });
+
     test('toFields يحتوي مجاميع المخطط والفعلي والمعتمد والعدّادات', () {
       final totals = ProjectCostTotals.fromItems([
         <String, dynamic>{
@@ -112,6 +138,8 @@ void main() {
       expect(fields['costsItemCount'], 1);
       expect(fields['costsActualItemCount'], 1);
       expect(fields['costsProjectItemCount'], 1);
+      expect(fields['costsLineCount'], 0);
+      expect(fields['actualCostsLineCount'], 0);
       expect(fields['materialsCost'], 100.0);
       expect(fields['materialsActualCost'], 120.0);
     });

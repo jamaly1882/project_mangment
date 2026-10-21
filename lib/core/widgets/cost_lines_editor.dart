@@ -828,3 +828,235 @@ class _CostLinesEditorState extends State<CostLinesEditor> {
     );
   }
 }
+
+// ============================================================
+// بطاقة مقارنة سطر بسطر: المخطط مقابل الفعلي
+// ============================================================
+
+class CostLinesComparison extends StatelessWidget {
+  const CostLinesComparison({
+    super.key,
+    required this.planned,
+    required this.actual,
+    this.title = 'مقارنة الأسطر: المخطط مقابل المسجّل فعليًا',
+    this.plannedLabel = 'المخطط',
+    this.actualLabel = 'الفعلي',
+    this.accent,
+  });
+
+  final CostLines planned;
+  final CostLines actual;
+
+  final String title;
+  final String plannedLabel;
+  final String actualLabel;
+
+  final Color? accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final diff = planned.diff(actual);
+
+    if (!diff.hasAny) {
+      return const SizedBox.shrink();
+    }
+
+    final tone = accent ?? AppColors.primary;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: tone.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AppSectionTitle(
+            title: title,
+            subtitle: diff.summaryLabel(),
+            icon: Icons.compare_arrows,
+          ),
+          AppSpacing.verticalSm,
+          _headCell(tone),
+          const Divider(height: 1),
+          for (final row in diff.rows) _bodyRow(row),
+          const Divider(height: 1),
+          _totalRow(diff, tone),
+          AppSpacing.verticalXs,
+          Text(
+            'الفروق على مستوى السطر تقريبية: كل سطر يُقارن بالسطر '
+            'الذي بنفس ترتيبه لدى الطرف الآخر داخل القسم، '
+            'والاعتبار الأول لمجموع القسم.',
+            style: AppTextStyles.small.copyWith(
+              color: AppColors.textLight,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _headCell(Color tone) {
+    return Container(
+      color: tone.withValues(alpha: 0.06),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          _cell('البيان', flex: 4, style: _headStyle),
+          _cell(plannedLabel, flex: 2, style: _headStyle, end: true),
+          _cell(actualLabel, flex: 2, style: _headStyle, end: true),
+          _cell('الفرق', flex: 2, style: _headStyle, end: true),
+        ],
+      ),
+    );
+  }
+
+  static TextStyle get _headStyle => AppTextStyles.small.copyWith(
+        fontWeight: FontWeight.w700,
+        color: AppColors.textSecondary,
+      );
+
+  Widget _bodyRow(CostDiffRow row) {
+    final Color deltaColor;
+
+    if (row.overBudget) {
+      deltaColor = AppColors.danger;
+    } else if (row.hasDelta) {
+      deltaColor = AppColors.success;
+    } else {
+      deltaColor = AppColors.textLight;
+    }
+
+    final labelStyle = row.isCategorySummary
+        ? AppTextStyles.body.copyWith(fontWeight: FontWeight.w700)
+        : AppTextStyles.bodySecondary;
+
+    return Container(
+      color: row.isCategorySummary
+          ? AppColors.background.withValues(alpha: 0.6)
+          : null,
+      padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              _cell(
+                row.isCategorySummary
+                    ? row.label
+                    : '   ${row.index + 1}. ${row.label}',
+                flex: 4,
+                style: labelStyle,
+              ),
+              _cell(
+                ProjectCosts.formatMoney(row.planned),
+                flex: 2,
+                style: AppTextStyles.small,
+                end: true,
+              ),
+              _cell(
+                ProjectCosts.formatMoney(row.actual),
+                flex: 2,
+                style: AppTextStyles.small,
+                end: true,
+              ),
+              _cell(
+                _signed(row.delta),
+                flex: 2,
+                style: AppTextStyles.small.copyWith(color: deltaColor),
+                end: true,
+              ),
+            ],
+          ),
+          if (!row.isCategorySummary && row.note != 'مطابق')
+            Padding(
+              padding: const EdgeInsets.only(right: 4, top: 2),
+              child: Text(
+                row.note,
+                style: AppTextStyles.small.copyWith(
+                  color: deltaColor,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _totalRow(CostLinesDiff diff, Color tone) {
+    final Color deltaColor = diff.overBudget
+        ? AppColors.danger
+        : (diff.hasDifference ? AppColors.success : tone);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          _cell(
+            'الإجمالي',
+            flex: 4,
+            style: AppTextStyles.body.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          _cell(
+            ProjectCosts.formatMoney(diff.plannedTotal),
+            flex: 2,
+            style: AppTextStyles.body.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+            end: true,
+          ),
+          _cell(
+            ProjectCosts.formatMoney(diff.actualTotal),
+            flex: 2,
+            style: AppTextStyles.body.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+            end: true,
+          ),
+          _cell(
+            _signed(diff.delta),
+            flex: 2,
+            style: AppTextStyles.body.copyWith(
+              fontWeight: FontWeight.w700,
+              color: deltaColor,
+            ),
+            end: true,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _cell(
+    String text, {
+    required int flex,
+    required TextStyle style,
+    bool end = false,
+  }) {
+    return Expanded(
+      flex: flex,
+      child: Text(
+        text,
+        textAlign: end ? TextAlign.end : TextAlign.start,
+        style: style,
+        maxLines: end ? 1 : 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
+  }
+
+  static String _signed(double value) {
+    if (value.abs() < 0.0001) return '—';
+
+    final text = ProjectCosts.formatMoney(value.abs());
+
+    return value > 0 ? '+$text' : '-$text';
+  }
+}

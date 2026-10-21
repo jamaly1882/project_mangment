@@ -234,6 +234,145 @@ void main() {
     });
   });
 
+  group('مقارنة الأسطر سطرًا بسطر', () {
+    CostLines planned() {
+      return CostLines(<CostLineKind, List<Map<String, dynamic>>>{
+        CostLineKind.material: [
+          materialLine(unitPrice: 100, quantity: 5),
+          materialLine(name: 'حديد', unit: 'طن', unitPrice: 1000, quantity: 1),
+        ],
+        CostLineKind.labor: [
+          <String, dynamic>{
+            'job': 'نجار',
+            'wageBasis': 'يومي',
+            'count': 1,
+            'wage': 500,
+            'duration': 2,
+          },
+        ],
+      });
+    }
+
+    CostLines actual() {
+      return CostLines(<CostLineKind, List<Map<String, dynamic>>>{
+        CostLineKind.material: [
+          materialLine(unitPrice: 120, quantity: 5),
+          materialLine(name: 'حديد', unit: 'طن', unitPrice: 500, quantity: 1),
+        ],
+        CostLineKind.equipment: [
+          <String, dynamic>{
+            'equipmentType': 'حفار',
+            'count': 1,
+            'unit': 'ساعة',
+            'unitPrice': 300,
+            'quantity': 2,
+          },
+        ],
+      });
+    }
+
+    test('describe يكتب اسم السطر مع وحدته', () {
+      final materialSchema = CostLineSchema.of(CostLineKind.material);
+      final laborSchema = CostLineSchema.of(CostLineKind.labor);
+      final fuelSchema = CostLineSchema.of(CostLineKind.fuel);
+
+      expect(materialSchema.titleKey, 'materialName');
+      expect(laborSchema.titleKey, 'job');
+      expect(fuelSchema.titleKey, 'fuelType');
+
+      expect(materialSchema.describe(<String, dynamic>{
+        'materialName': 'إسمنت',
+        'unit': 'كيس',
+      }), 'إسمنت (كيس)');
+
+      expect(laborSchema.describe(<String, dynamic>{
+        'job': 'نجار',
+        'wageBasis': 'يومي',
+      }), 'نجار (يومي)');
+
+      expect(fuelSchema.describe(<String, dynamic>{}),
+          contains('بدون اسم'));
+    });
+
+    test('كل قسم يعطي سطر ملخصًا ثم أسطره', () {
+      final diff = planned().diff(actual());
+
+      expect(diff.hasAny, isTrue);
+      expect(diff.rows.first.isCategorySummary, isTrue);
+
+      final materialRows = diff.rows
+          .where((r) => r.kind == CostLineKind.material)
+          .toList();
+
+      expect(materialRows, hasLength(3));
+      expect(materialRows.first.index, -1);
+      expect(materialRows.first.planned, 1500);
+      expect(materialRows.first.actual, 1100);
+      expect(materialRows.first.delta, -400);
+
+      expect(materialRows[1].label, 'إسمنت (كيس)');
+      expect(materialRows[1].planned, 500);
+      expect(materialRows[1].actual, 600);
+      expect(materialRows[1].overBudget, isTrue);
+      expect(materialRows[1].note, 'تجاوز');
+
+      expect(materialRows[2].note, 'أقل من المخطط');
+    });
+
+    test('سطر مخطط بلا مقابل وسطر فعلي بلا مقابل', () {
+      final diff = planned().diff(actual());
+
+      final laborRow = diff.linesOf(CostLineKind.labor).single;
+
+      expect(laborRow.planned, 1000);
+      expect(laborRow.actual, 0);
+      expect(laborRow.notConsumed, isTrue);
+      expect(laborRow.note, 'لم يُستهلك');
+
+      final equipmentRow = diff.linesOf(CostLineKind.equipment).single;
+
+      expect(equipmentRow.planned, 0);
+      expect(equipmentRow.actual, 600);
+      expect(equipmentRow.onlyActual, isTrue);
+      expect(equipmentRow.note, 'غير مخطط');
+    });
+
+    test('إجماليات الفرق والنسبة والتجاوز', () {
+      final diff = planned().diff(actual());
+
+      expect(diff.plannedTotal, 2500);
+      expect(diff.actualTotal, 1700);
+      expect(diff.delta, -800);
+      expect(diff.hasDifference, isTrue);
+      expect(diff.overBudget, isFalse);
+      // الزيادة على مستوى الأسطر: 600-500 و 600 equipment
+      expect(diff.overrun, 700);
+      expect((diff.ratio * 100).round(), 68);
+      expect(diff.summaryLabel(), contains('أقل من المخطط'));
+    });
+
+    test('مطابقة تامة تعيد نصًا بدون فرق', () {
+      final lines = planned();
+
+      final diff = lines.diff(lines);
+
+      expect(diff.hasDifference, isFalse);
+      expect(diff.delta, 0);
+      expect(diff.overBudget, isFalse);
+      expect(diff.summaryLabel(), 'مطابق للمخطط');
+      expect(diff.rows.every((r) => r.note == 'مطابق'), isTrue);
+    });
+
+    test('حزمتان فارغتان لا تعطيانه شيئًا', () {
+      final diff = CostLines().diff(CostLines());
+
+      expect(diff.hasAny, isFalse);
+      expect(diff.summaryLabel(), 'لا توجد أسطر للمقارنة');
+      expect(diff.plannedTotal, 0);
+      expect(diff.actualTotal, 0);
+    });
+  });
+
   group('الترحيل من الإدخال القديم', () {
     test('رقم مفرد لقسم يتحول إلى سطر واحد مثبّت', () {
       final lines = CostLines.fromData(

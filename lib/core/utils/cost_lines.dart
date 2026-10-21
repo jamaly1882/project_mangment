@@ -377,6 +377,29 @@ class CostLineSchema {
     return ProjectCosts.nonNegative(computedCost(line));
   }
 
+  /// الحقل الذي يسمّي السطر (الاسم/المهنة/نوع الوقود).
+  String get titleKey {
+    for (final field in fields) {
+      if (field.kind == CostFieldKind.text) return field.key;
+    }
+
+    return fields.isEmpty ? '' : fields.first.key;
+  }
+
+  /// نص مختصر للسطر يُستخدم في المقارنات والتقارير.
+  String describe(Map<String, dynamic> line) {
+    final name = text(line, titleKey).trim();
+
+    final unitKey =
+        kind == CostLineKind.labor ? 'wageBasis' : 'unit';
+    final unit = text(line, unitKey).trim();
+
+    if (name.isEmpty && unit.isEmpty) return '$rowTitle بدون اسم';
+    if (unit.isEmpty) return name;
+
+    return '$name ($unit)';
+  }
+
   /// تحقق من سطر واحد؛ يعيد قائمة رسائل (فارغة = سليم).
   List<String> validateLine(Map<String, dynamic> line, int index) {
     final errors = <String>[];
@@ -510,6 +533,69 @@ class CostLines {
   }
 
   /// بيانات الحفظ في Firestore: الأسطر + مجاميع الأقسام + مرايا تكلفة الوحدة.
+  /// مقارنة سطرًا بسطر مع حزمة أخرى (المخطط مقابل الفعلي).
+  /// السطر رقم i في قسم يقابل السطر رقم i في الحزمة الأخرى،
+  /// وللقسم سطر ملخّص بمجموعه.
+  CostLinesDiff diff(CostLines? other) {
+    final counterpart = other ?? CostLines();
+
+    final rows = <CostDiffRow>[];
+
+    final plannedByKind = <CostLineKind, double>{};
+    final actualByKind = <CostLineKind, double>{};
+
+    for (final schema in CostLineSchema.ordered) {
+      final plannedLines = this[schema.kind];
+      final actualLines = counterpart[schema.kind];
+
+      if (plannedLines.isEmpty && actualLines.isEmpty) continue;
+
+      final plannedTotal = totalOf(schema.kind);
+      final actualTotal = counterpart.totalOf(schema.kind);
+
+      plannedByKind[schema.kind] = plannedTotal;
+      actualByKind[schema.kind] = actualTotal;
+
+      rows.add(
+        CostDiffRow(
+          kind: schema.kind,
+          index: -1,
+          label: schema.title,
+          planned: plannedTotal,
+          actual: actualTotal,
+          isSummary: true,
+        ),
+      );
+
+      final count = plannedLines.length > actualLines.length
+          ? plannedLines.length
+          : actualLines.length;
+
+      for (int i = 0; i < count; i++) {
+        final plannedLine = i < plannedLines.length ? plannedLines[i] : null;
+        final actualLine = i < actualLines.length ? actualLines[i] : null;
+
+        rows.add(
+          CostDiffRow(
+            kind: schema.kind,
+            index: i,
+            label: schema.describe(plannedLine ?? actualLine!),
+            planned: plannedLine == null ? 0 : schema.costOf(plannedLine),
+            actual: actualLine == null ? 0 : schema.costOf(actualLine),
+          ),
+        );
+      }
+    }
+
+    return CostLinesDiff(
+      rows: rows,
+      plannedTotal: grandTotal,
+      actualTotal: counterpart.grandTotal,
+      plannedByKind: plannedByKind,
+      actualByKind: actualByKind,
+    );
+  }
+
   Map<String, dynamic> toSaveData({
     bool actual = false,
     double contractQuantity = 0,
@@ -540,7 +626,7 @@ class CostLines {
         : ProjectCosts.totalField] = grand;
 
     data[actual ? 'actualCostsModel' : 'costsModel'] = 'lines';
-    data['costsLineCount'] = lineCount;
+    data[actual ? 'actualCostsLineCount' : 'costsLineCount'] = lineCount;
 
     return data;
   }
@@ -645,5 +731,119 @@ class CostLines {
           CostLineSchema.legacyKey: true,
         };
     }
+  }
+}
+
+// ============================================================
+// فرق سطر بسطر بين حزمتي أسطر (مخطط / فعلي)
+// ============================================================
+
+/// صف واحد في جدول المقارنة.
+class CostDiffRow {
+  const CostDiffRow({
+    required this.kind,
+    required this.index,
+    required this.label,
+    required this.planned,
+    required this.actual,
+    this.isSummary = false,
+  });
+
+  final CostLineKind kind;
+
+  /// رقم السطر في قسمه، أو -1 لسطر ملخّص القسم.
+  final int index;
+
+  final String label;
+  final double planned;
+  final double actual;
+  final bool isSummary;
+
+  bool get isCategorySummary => isSummary;
+
+  /// موجب = تجاوز المخطط، سالب = أقل منه.
+  double get delta => actual - planned;
+
+  bool get hasDelta => delta.abs() > 0.0001;
+
+  bool get overBudget => hasDelta && delta > 0;
+
+  /// سطر لم يُدخل في المخطط لكنه سُجّل فعليًا.
+  bool get onlyActual => planned <= 0 && actual > 0;
+
+  /// سطر مخطط لم يسجل المشرف شيئًا له.
+  bool get notConsumed => actual <= 0 && planned > 0;
+
+  String get note {
+    if (onlyActual) return 'غير مخطط';
+    if (notConsumed) return 'لم يُستهلك';
+    if (overBudget) return 'تجاوز';
+    if (hasDelta) return 'أقل من المخطط';
+
+    return 'مطابق';
+  }
+}
+
+/// نتيجة مقارنة حزمتي أسطر.
+class CostLinesDiff {
+  const CostLinesDiff({
+    required this.rows,
+    required this.plannedTotal,
+    required this.actualTotal,
+    required this.plannedByKind,
+    required this.actualByKind,
+  });
+
+  final List<CostDiffRow> rows;
+
+  final double plannedTotal;
+  final double actualTotal;
+
+  final Map<CostLineKind, double> plannedByKind;
+  final Map<CostLineKind, double> actualByKind;
+
+  bool get hasAny => rows.isNotEmpty;
+
+  double get delta => actualTotal - plannedTotal;
+
+  bool get hasDifference => delta.abs() > 0.0001;
+
+  /// الفعلي تجاوز الإجمالي المخطط.
+  bool get overBudget => delta > 0.0001;
+
+  /// مقدار الزيادة فقط (لتفادي إطفاء النقصان للزيادة).
+  double get overrun {
+    double sum = 0;
+
+    for (final row in rows.where((r) => !r.isCategorySummary)) {
+      if (r.delta > 0) sum += r.delta;
+    }
+
+    return sum;
+  }
+
+  /// نسبة الاستهلاك من المخطط (0..1 وما فوق عند التجاوز).
+  double get ratio =>
+      plannedTotal > 0 ? actualTotal / plannedTotal : (actualTotal > 0 ? 1 : 0);
+
+  List<CostDiffRow> linesOf(CostLineKind kind) {
+    return rows
+        .where((r) => r.kind == kind && !r.isCategorySummary)
+        .toList();
+  }
+
+  /// نص مختصر للعناوين: «الفعلي أقل بـ ...» ونحوها.
+  String summaryLabel() {
+    if (!hasAny) return 'لا توجد أسطر للمقارنة';
+
+    if (!hasDifference) {
+      return actualTotal > 0
+          ? 'مطابق للمخطط'
+          : 'لم تُسجّل تكلفة فعلية بعد';
+    }
+
+    final text = ProjectCosts.formatMoney(delta.abs());
+
+    return delta > 0 ? 'تجاوز المخطط بمقدار $text' : 'أقل من المخطط بمقدار $text';
   }
 }

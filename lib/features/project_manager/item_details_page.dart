@@ -187,6 +187,14 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   double get _itemActualTotal =>
       ProjectCosts.actualTotalOf(_itemData);
 
+  /// الأسطر الفعلية التي سجلها مشرف البند (للعرض والمقارنة هنا).
+  CostLines get _actualLines => CostLines.fromData(
+        _itemData,
+        actual: true,
+        contractQuantity: _contractQuantity,
+        unit: _stringValue(_itemData?['unit']),
+      );
+
   String _stringValue(dynamic value, {String defaultValue = ''}) {
     if (value == null) return defaultValue;
     return value.toString().trim();
@@ -1148,6 +1156,17 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
             onChanged: () {
               if (mounted) setState(() {});
             },
+          ),
+          AppSpacing.verticalMd,
+        ],
+        if (_actualLines.isNotEmpty) ...[
+          CostLinesComparison(
+            planned: lines,
+            actual: _actualLines,
+            title: 'ما سجله مشرف البند مقابل المخطط',
+            plannedLabel: 'مخطط',
+            actualLabel: 'فعلي',
+            accent: AppColors.supervisor,
           ),
           AppSpacing.verticalMd,
         ],

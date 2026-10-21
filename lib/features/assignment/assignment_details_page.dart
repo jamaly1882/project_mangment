@@ -161,6 +161,32 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
     });
   }
 
+  /// أسطر المخطط كما حددها مدير المشروع (للمقارنة فقط هنا).
+  CostLines get _plannedLines => CostLines.fromData(
+        _plannedSource,
+        contractQuantity: _costQuantity,
+        unit: _stringValue(_plannedSource['unit']),
+      );
+
+  /// بطاقة مقارنة سطر بسطر بين المخطط وما يسجله المشرف الآن.
+  Widget _buildComparisonCard() {
+    final plannedLines = _plannedLines;
+    final actualLines = _actualLines;
+
+    if (plannedLines.isEmpty && actualLines.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return CostLinesComparison(
+      planned: plannedLines,
+      actual: actualLines,
+      title: 'مقارنة أسطر التكلفة',
+      plannedLabel: 'المخطط',
+      actualLabel: 'المسجَّل',
+      accent: AppColors.supervisor,
+    );
+  }
+
   /// إجمالي التكاليف الفعلية المحفوظة سابقًا.
   double get _savedActualTotal =>
       ProjectCosts.actualTotalOf(_detailsData) > 0
@@ -1110,6 +1136,8 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
                       _buildItemCard(),
                       AppSpacing.verticalMd,
                       _buildCostsCard(),
+                      AppSpacing.verticalMd,
+                      _buildComparisonCard(),
                       AppSpacing.verticalMd,
                       _buildLimitsCard(),
                       AppSpacing.verticalMd,
