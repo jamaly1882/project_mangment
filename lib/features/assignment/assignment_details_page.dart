@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
+import '../../core/utils/cost_lines.dart';
 import '../../core/utils/costs.dart';
 import '../../core/widgets/app_widgets.dart';
+import '../../core/widgets/cost_lines_editor.dart';
 import '../../core/widgets/cost_widgets.dart';
 
 /// صفحة مشرف البند.
@@ -49,24 +51,18 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   final TextEditingController _workingHoursController = TextEditingController();
 
   // ============================================================
-  // حقول التكاليف الفعلية (مواد / عمالة / معدات / محروقات)
+  // أسطر التكاليف الفعلية (نفس أقسام مدير المشروع الأربعة)
   // ============================================================
 
-  final Map<String, TextEditingController> _actualUnitControllers =
-      <String, TextEditingController>{};
+  final Map<CostLineKind, CostLinesEditorController> _costEditors =
+      <CostLineKind, CostLinesEditorController>{
+    for (final schema in CostLineSchema.ordered)
+      schema.kind: CostLinesEditorController(schema),
+  };
 
-  final Map<String, TextEditingController> _actualTotalControllers =
-      <String, TextEditingController>{};
-
-  /// الأقسام التي أدخل المشرف إجماليها يدويًا فلا تُحسب من تكلفة الوحدة.
-  final Set<String> _manualActualTotals = <String>{};
-
-  _AssignmentDetailsPageState() {
-    for (final category in ProjectCosts.categories) {
-      _actualUnitControllers[category.key] = TextEditingController();
-      _actualTotalControllers[category.key] = TextEditingController();
-    }
-  }
+  /// خيارات الاختيار من بيانات النظام (المواد وحصر المعدات).
+  List<CostPickerOption> _materialOptions = const <CostPickerOption>[];
+  List<CostPickerOption> _equipmentOptions = const <CostPickerOption>[];
 
   bool _loading = true;
   bool _saving = false;
@@ -95,12 +91,8 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
     _oilController.dispose();
     _workingHoursController.dispose();
 
-    for (final controller in _actualUnitControllers.values) {
-      controller.dispose();
-    }
-
-    for (final controller in _actualTotalControllers.values) {
-      controller.dispose();
+    for (final editor in _costEditors.values) {
+      editor.dispose();
     }
 
     super.dispose();
@@ -160,81 +152,44 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   double get _plannedItemTotal =>
       ProjectCosts.totalOf(_plannedSource);
 
-  double get _actualItemTotal =>
+  /// الأسطر الفعلية كما هي في المحرّرات الآن.
+  CostLines get _actualLines {
+    return CostLines(<CostLineKind, List<Map<String, dynamic>>>{
+      for (final schema in CostLineSchema.ordered)
+        schema.kind: _costEditors[schema.kind]?.lines ??
+            const <Map<String, dynamic>>[],
+    });
+  }
+
+  /// إجمالي التكاليف الفعلية المحفوظة سابقًا.
+  double get _savedActualTotal =>
       ProjectCosts.actualTotalOf(_detailsData) > 0
           ? ProjectCosts.actualTotalOf(_detailsData)
           : ProjectCosts.actualTotalOf(_itemData);
 
-  bool get _hasActualCostInput {
-    for (final category in ProjectCosts.categories) {
-      final unit =
-          _actualUnitControllers[category.key]?.text.trim() ?? '';
-      final total =
-          _actualTotalControllers[category.key]?.text.trim() ?? '';
+  /// لون القسم المقابل.
+  Color _accentFor(CostLineKind kind) {
+    final key = _categoryKeyOf(kind);
 
-      if (unit.isNotEmpty || total.isNotEmpty) return true;
-    }
-
-    return false;
+    return ProjectCosts.categories
+        .firstWhere(
+          (category) => category.key == key,
+          orElse: () => ProjectCosts.categories.first,
+        )
+        .color;
   }
 
-  // ============================================================
-  // حساب التكاليف الفعلية أثناء الكتابة
-  // ============================================================
-
-  void _onActualUnitChanged(String key) {
-    if (_manualActualTotals.contains(key)) return;
-
-    final category = ProjectCosts.categoryByKey(key);
-    if (category == null) return;
-
-    final unit = ProjectCosts.parseOptional(
-      _actualUnitControllers[key]?.text ?? '',
-    );
-
-    if (unit == null) {
-      _actualTotalControllers[key]?.clear();
-      return;
+  static String _categoryKeyOf(CostLineKind kind) {
+    switch (kind) {
+      case CostLineKind.material:
+        return 'materials';
+      case CostLineKind.labor:
+        return 'labor';
+      case CostLineKind.equipment:
+        return 'equipment';
+      case CostLineKind.fuel:
+        return 'fuel';
     }
-
-    final total = _costQuantity > 0
-        ? ProjectCosts.nonNegative(unit) * _costQuantity
-        : ProjectCosts.nonNegative(unit);
-
-    _actualTotalControllers[key]?.text =
-        ProjectCosts.toEditText(total);
-  }
-
-  void _onActualTotalChanged(String key) {
-    final text =
-        _actualTotalControllers[key]?.text.trim() ?? '';
-
-    final unitText =
-        _actualUnitControllers[key]?.text.trim() ?? '';
-
-    if (text.isEmpty) {
-      _manualActualTotals.remove(key);
-      return;
-    }
-
-    // إذا طابق الإجمالي المحسوب تلقائيًا نُبقي الحساب التلقائي فعّالًا.
-    if (unitText.isNotEmpty) {
-      final unit = ProjectCosts.parseOptional(unitText);
-      final total = ProjectCosts.parseOptional(text);
-
-      if (unit != null && total != null) {
-        final expected = _costQuantity > 0
-            ? unit * _costQuantity
-            : unit;
-
-        if ((expected - total).abs() < 0.01) {
-          _manualActualTotals.remove(key);
-          return;
-        }
-      }
-    }
-
-    _manualActualTotals.add(key);
   }
 
   // ============================================================
@@ -391,37 +346,59 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
       _workingHoursController.text =
           hours == null ? '' : _formatNumber(hours);
 
-      // التكاليف الفعلية المحفوظة (من تفاصيل البند أو وثيقته).
+      // أسطر التكاليف الفعلية المحفوظة، مع ترحيل الرقم المفرد القديم
+      // إلى سطر واحد قابل للتعديل.
       final costSource =
           ProjectCosts.actualTotalOf(details) > 0 ? details : item;
 
-      for (final category in ProjectCosts.categories) {
-        final actualUnit =
-            ProjectCosts.nonNegative(costSource[category.actualUnitField]);
-        final actualTotal =
-            ProjectCosts.nonNegative(costSource[category.actualField]);
+      final saved = CostLines.fromData(
+        costSource,
+        actual: true,
+        contractQuantity: _quantityOf(costSource),
+        unit: _stringValue(item['unit']),
+      );
 
-        _actualUnitControllers[category.key]!.text =
-            actualUnit > 0 ? ProjectCosts.toEditText(actualUnit) : '';
+      for (final schema in CostLineSchema.ordered) {
+        _costEditors[schema.kind]?.applyLines(saved[schema.kind]);
+      }
 
-        _actualTotalControllers[category.key]!.text =
-            actualTotal > 0 ? ProjectCosts.toEditText(actualTotal) : '';
+      // خيارات الأسطر: المواد وحصر المعدات.
+      try {
+        final materialsSnapshot =
+            await _firestore.collection('materials').get();
 
-        if (actualTotal > 0 && actualUnit > 0) {
-          final expected = _quantityOf(costSource) > 0
-              ? actualUnit * _quantityOf(costSource)
-              : actualUnit;
+        final options = <CostPickerOption>[
+          for (final doc in materialsSnapshot.docs)
+            CostPickerOption(
+              id: doc.id,
+              label: _stringValue(
+                doc.data()['name'],
+                fallback: 'مادة بدون اسم',
+              ),
+            ),
+        ]..sort((a, b) => a.label.compareTo(b.label));
 
-          if ((expected - actualTotal).abs() >= 0.01) {
-            _manualActualTotals.add(category.key);
-          } else {
-            _manualActualTotals.remove(category.key);
-          }
-        } else if (actualTotal > 0) {
-          _manualActualTotals.add(category.key);
-        } else {
-          _manualActualTotals.remove(category.key);
-        }
+        _materialOptions = options;
+      } catch (e) {
+        debugPrint('تعذر تحميل المواد لأسطر التكلفة: $e');
+      }
+
+      try {
+        final equipmentSnapshot = await _firestore
+            .collection('equipment')
+            .where('status', isEqualTo: 'active')
+            .get();
+
+        _equipmentOptions = <CostPickerOption>[
+          for (final doc in equipmentSnapshot.docs)
+            CostPickerOption(
+              id: doc.id,
+              label: '${_stringValue(doc.data()['code'], fallback: '—')} — '
+                  '${_stringValue(doc.data()['name'], fallback: _stringValue(doc.data()['type'], fallback: 'معدة'))}',
+            ),
+        ]..sort((a, b) => a.label.compareTo(b.label));
+      } catch (e) {
+        debugPrint('تعذر تحميل المعدات لأسطر التكلفة: $e');
       }
 
       ProjectCostTotals? totals;
@@ -483,25 +460,14 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
       return;
     }
 
-    // التحقق من أرقام التكاليف إن أدخل المشرف شيئًا منها.
-    for (final category in ProjectCosts.categories) {
-      final unitText =
-          _actualUnitControllers[category.key]?.text.trim() ?? '';
-      final totalText =
-          _actualTotalControllers[category.key]?.text.trim() ?? '';
+    // التحقق من أسطر التكاليف الفعلية إن أدخل المشرف شيئًا منها.
+    if (_actualLines.isNotEmpty) {
+      final errors = _actualLines.validate();
 
-      if (unitText.isNotEmpty && _parseNonNegative(unitText) == null) {
+      if (errors.isNotEmpty) {
         AppWidgets.showWarning(
           context,
-          'أدخل تكلفة ${category.shortLabel} الفعلية للوحدة رقمًا صحيحًا.',
-        );
-        return;
-      }
-
-      if (totalText.isNotEmpty && _parseNonNegative(totalText) == null) {
-        AppWidgets.showWarning(
-          context,
-          'أدخل إجمالي ${category.shortLabel} الفعلي رقمًا صحيحًا.',
+          'راجع التكاليف الفعلية:\n' + errors.take(3).join('\n'),
         );
         return;
       }
@@ -581,21 +547,13 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      // التكاليف الفعلية للبند.
+      // التكاليف الفعلية للبند: أسطر مفصّلة + مجاميع الأقسام.
       Map<String, dynamic> actualData = const <String, dynamic>{};
 
-      if (_hasActualCostInput) {
-        actualData = ProjectCosts.buildActualSaveData(
-          totalTexts: {
-            for (final entry in _actualTotalControllers.entries)
-              entry.key: entry.value.text,
-          },
-          unitTexts: {
-            for (final entry in _actualUnitControllers.entries)
-              entry.key: entry.value.text,
-          },
-          quantity: _costQuantity,
-          includeZeros: true,
+      if (_actualLines.isNotEmpty) {
+        actualData = _actualLines.toSaveData(
+          actual: true,
+          contractQuantity: _costQuantity,
         );
 
         detailsUpdate.addAll(actualData);
@@ -856,47 +814,13 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   // ============================================================
 
   Widget _buildCostsCard() {
+    final lines = _actualLines;
     final planned = ProjectCosts.breakdownOf(_plannedSource);
-    final unit = _stringValue(_itemData?['unit'], fallback: '');
-
-    final rows = <Widget>[];
-
-    for (final category in ProjectCosts.categories) {
-      if (rows.isNotEmpty) rows.add(AppSpacing.verticalMd);
-
-      rows.add(
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: AppNumberField(
-                controller: _actualUnitControllers[category.key],
-                label:
-                    'تكلفة ${category.shortLabel} للوحدة (فعلي)',
-                hint: 'للوحدة ال$unit',
-                suffixText: ProjectCosts.currency,
-                prefixIcon: category.icon,
-                onChanged: (_) => _onActualUnitChanged(category.key),
-              ),
-            ),
-            AppSpacing.horizontalMd,
-            Expanded(
-              child: AppNumberField(
-                controller: _actualTotalControllers[category.key],
-                label: 'إجمالي ${category.shortLabel} (فعلي)',
-                hint: 'محسوب تلقائيًا',
-                suffixText: ProjectCosts.currency,
-                prefixIcon: Icons.calculate_outlined,
-                onChanged: (_) => _onActualTotalChanged(category.key),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
     final plannedTotal = _plannedItemTotal;
-    final actualTotal = _actualItemTotal;
+    final actualTotal = lines.grandTotal;
+    final savedActual = _savedActualTotal;
+    final unit = _stringValue(_itemData?['unit']);
+    final quantity = _costQuantity;
     final difference = actualTotal - plannedTotal;
 
     return AppCard(
@@ -905,24 +829,39 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const AppSectionTitle(
-            title: 'تكاليف البند الفعلية',
+            title: 'التكاليف الفعلية للبند',
             subtitle:
-                'المواد وأجور العمالة والمعدات والمحروقات. '
-                'أدخل تكلفة الوحدة ليُحسب الإجمالي تلقائيًا على '
-                'كمية التنفيذ، أو أدخل الإجمالي مباشرة.',
+                'أنت تسجّل المستهلك فعليًا: سطر لكل مادة أو مهنة أو معدة '
+                'أو نوع وقود. أرقام مدير المشروع تبقى كما هي للمقارنة.',
             icon: Icons.account_balance_wallet_outlined,
           ),
           AppSpacing.verticalSm,
           Text(
             'الكمية المحسوب عليها الإجمالي: '
-            '${_formatNumber(_costQuantity)} $unit'
-            ' — والمخطط لهذا البند من مدير المشروع: '
+            '${_formatNumber(quantity)} $unit\n'
+            'المخطط لهذا البند (إدخال مدير المشروع): '
             '${ProjectCosts.formatMoney(plannedTotal)}',
             style: AppTextStyles.bodySecondary,
           ),
           AppSpacing.verticalMd,
-          ...rows,
-          AppSpacing.verticalMd,
+
+          for (final schema in CostLineSchema.ordered) ...[
+            CostLinesEditor(
+              schema: schema,
+              controller: _costEditors[schema.kind]!,
+              options: schema.kind == CostLineKind.material
+                  ? _materialOptions
+                  : (schema.kind == CostLineKind.equipment
+                      ? _equipmentOptions
+                      : const <CostPickerOption>[]),
+              accent: _accentFor(schema.kind),
+              onChanged: () {
+                if (mounted) setState(() {});
+              },
+            ),
+            AppSpacing.verticalMd,
+          ],
+
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -937,35 +876,34 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
                   value: ProjectCosts.formatMoney(actualTotal),
                   icon: Icons.payments_outlined,
                 ),
-                AppSpacing.verticalXs,
-                AppInfoRow(
-                  label: 'المخطط للبند (إدخال مدير المشروع)',
-                  value: ProjectCosts.formatMoney(plannedTotal),
-                  icon: Icons.timeline_outlined,
-                ),
+                if (savedActual > 0 &&
+                    (savedActual - actualTotal).abs() >= 0.01) ...[
+                  AppSpacing.verticalXs,
+                  AppInfoRow(
+                    label: 'آخر إجماليات محفوظة',
+                    value: ProjectCosts.formatMoney(savedActual),
+                    icon: Icons.history,
+                  ),
+                ],
                 if (actualTotal > 0 && plannedTotal > 0) ...[
                   AppSpacing.verticalXs,
                   AppInfoRow(
                     label: difference >= 0
                         ? 'زيادة عن المخطط'
                         : 'أقل من المخطط',
-                    value: ProjectCosts.formatMoney(
-                      difference.abs(),
-                    ),
+                    value: ProjectCosts.formatMoney(difference.abs()),
                     icon: difference > 0
                         ? Icons.trending_up_outlined
                         : Icons.trending_down_outlined,
                   ),
-                  if (plannedTotal > 0) ...[
-                    AppSpacing.verticalXs,
-                    AppProgress(
-                      value: (actualTotal / plannedTotal)
-                          .clamp(0.0, 1.0)
-                          .toDouble(),
-                      label: 'الفعلي مقابل المخطط',
-                      height: 8,
-                    ),
-                  ],
+                  AppSpacing.verticalXs,
+                  AppProgress(
+                    value: (actualTotal / plannedTotal)
+                        .clamp(0.0, 1.0)
+                        .toDouble(),
+                    label: 'الفعلي مقابل المخطط',
+                    height: 8,
+                  ),
                 ],
               ],
             ),
@@ -973,9 +911,7 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
           AppSpacing.verticalMd,
           CostSummaryCard(
             title: 'أقسام التكلفة: الفعلي مقابل المخطط',
-            breakdown: ProjectCosts.actualBreakdownOf(
-              _detailsData ?? _itemData,
-            ),
+            breakdown: lines.categoryTotals(),
             reference: planned,
             referenceLabel: 'المخطط',
             total: actualTotal,

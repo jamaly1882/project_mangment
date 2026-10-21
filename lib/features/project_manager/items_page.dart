@@ -71,13 +71,6 @@ class ItemsPage extends StatelessWidget {
     return ProjectCosts.totalUnitCost(data);
   }
 
-  /// الكمية المنفذة.
-  double _executedQuantity(
-    Map<String, dynamic> data,
-  ) {
-    return _toDouble(data['executedQuantity']);
-  }
-
   // =========================================================
   // تنسيق التاريخ
   // =========================================================
@@ -1009,6 +1002,9 @@ class _ItemCard extends StatelessWidget {
               );
               final actualCost =
                   ProjectCosts.actualTotalOf(data);
+              final costLines = data['costsLineCount'];
+              final lineCount =
+                  costLines is num ? costLines.toInt() : 0;
               final supervisorName =
                   data['supervisorName']?.toString() ??
                       '';
@@ -1037,6 +1033,14 @@ class _ItemCard extends StatelessWidget {
                           ? ProjectCosts.formatMoney(totalCost)
                           : 'لم تُحدد بعد',
                     ),
+                    if (lineCount > 0) ...[
+                      AppSpacing.verticalXs,
+                      AppInfoRow(
+                        icon: Icons.list_alt,
+                        label: 'بنود التكلفة المفصّلة',
+                        value: '$lineCount سطر (مواد/عمالة/معدات/محروقات)',
+                      ),
+                    ],
                     if (executedCost > 0) ...[
                       AppSpacing.verticalXs,
                       AppInfoRow(
