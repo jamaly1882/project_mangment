@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# ملفات أداة Firebase CLI المولّدة محليًا (تُعاد عند كل deploy)
+/.firebase/
