@@ -172,8 +172,15 @@ LoginPage
       ├── 4) المسؤول عن البند
       │     ├── مشرف البند (بدل السائق) → supervisorId / supervisorName
       │     │     (يُختار من مستخدمين مسجلين في النظام — لا إنشاء من هنا)
-      │     ├── المعدة  → equipmentId
-      │     └── نوع الوقود + الكميات المخططة (وقود/زيت/ساعات)
+      │     └── المعدة  → equipmentId
+      │
+      │     (أُلغيت من هذه الصفحة حقول: نوع الوقود، كمية الوقود المخططة،
+      │      كمية الزيت المخططة، ساعات العمل المخططة — الاستهلاك المخطط
+      │      يُدخل الآن أسطرًا في «تكلفة استهلاك المحروقات» ضمن تكاليف البند،
+      │      ويتوقف الحفظ عن كتابة fuelType/defaultFuelQuantity/
+      │      defaultDieselQuantity/defaultOilQuantity/defaultWorkingHours،
+      │      أما القيم القديمة المحفوظة في البنود الحالية فتبقى كما هي
+      │      وتظهر لمشرف البند في بطاقة «حدود الاستهلاك».)
       └── الحفظ يكتب في: item_details + items + item_supervisors/{itemId}
           ثم ProjectCostSync.applyTotals(projectId)
 
@@ -186,6 +193,8 @@ LoginPage
       ├── 1) الاستهلاك الفعلي → item_details
       │     consumedFuelQuantity / consumedOilQuantity / executedWorkingHours
       │     + علامات تجاوز المخطط (fuelExceededPlanned / ...)
+      │     تُقرأ الحدود من default* القديمة؛ للبنود الجديدة لا حدود
+      │     فتعرض «غير محدد» ولا يُعلَّم تجاوز (بدون أي رفض للحفظ).
       ├── 2) التكاليف الفعلية للبند = نفس جداول الأسطر الأربعة (حقول Actual)
       │     materialsActualCost / laborActualCost /
       │     equipmentActualCost / fuelActualCost  (+ *ActualUnitCost)
