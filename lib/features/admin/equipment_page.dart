@@ -500,10 +500,16 @@ class _EquipmentPageState extends State<EquipmentPage> {
 
                             return DropdownButtonFormField<
                                 String>(
-                              value:
-                                  hasSelectedDriver
-                                      ? selectedDriverId
-                                      : null,
+                              // القيمة هنا تُصفَّر برمجيًا بزرّ المسح ✕، فلا
+                              // تكفي initialValue وحدها: المفتاح يتغيّر مع
+                              // الاختيار فيُعاد تهيئة الحقل، ويختفي اسم
+                              // المشرف المحذوف من العرض بدل أن يبقى ظاهرًا.
+                              key: ValueKey<String?>(
+                                'equipment-driver-$selectedDriverId',
+                              ),
+                              initialValue: hasSelectedDriver
+                                  ? selectedDriverId
+                                  : null,
                               isExpanded:
                                   true,
                               decoration:
@@ -619,7 +625,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
 
                         DropdownButtonFormField<
                             String>(
-                          value: const [
+                          initialValue: const [
                             'جيدة',
                             'متوسطة',
                             'تحتاج صيانة',
@@ -693,7 +699,7 @@ class _EquipmentPageState extends State<EquipmentPage> {
 
                         DropdownButtonFormField<
                             String>(
-                          value:
+                          initialValue:
                               status ==
                                       'inactive'
                                   ? 'inactive'
