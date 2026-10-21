@@ -1,0 +1,113 @@
+rules_version = '2';
+
+// ============================================================
+// قواعد Firestore لتطبيق azal
+// ============================================================
+//
+// الطبقة المفعّلة هنا بسيطة وآمنة: أي مستخدم مسجّل الدخول يقرأ ويكتب،
+// وغير المسجّل مرفوض كليًا. هذا يُغلق وضع «Test mode» (المتاح للعامة)
+// دون أن يقفل أي شاشة من شاشات التطبيق:
+//
+// • صفحة الدخول تقرأ users/{uid} بعد نجاح تسجيل الدخول ✓
+// • إنشاء الحسابات يتم من صفحات المسؤول (مستخدم مسجّل) ✓
+// • تكاليف المشروع تُحدَّث من كود التطبيق (ProjectCostSync) بكتابة
+//   حقول المجاميع في وثيقة المشروع ✓ لذلك يجب أن تبقى مسموحة
+//   لـ project_manager و supervisor إن شدّدت القواعد لاحقًا.
+//
+// كل ما عدا ذلك (قواعد الأدوار) معلّق بالأسفل كخطوة تالية جاهزة.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // كل مجموعات التطبيق: projects، items، item_details،
+    // item_supervisors، item_drivers، item_executions، users،
+    // materials، equipment، types، item_definitions، districts،
+    // governorates، additional_works وغيرها.
+    match /{document=**} {
+      allow read, write: if signedIn();
+    }
+
+    // ==========================================================
+    // الخطوة التالية (اختيارية): قواعد بالأدوار.
+    // احذف قاعدة match /{document=**} المفعّلة فوق، ثم أزل التعليق.
+    // القواعد تُجمَّع بالـ OR، فإبقاء العمومية يجعل التقييد بلا أثر.
+    // ==========================================================
+    //
+    // function me() {
+    //   return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    // }
+    // function role() {
+    //   return me().data.role;
+    // }
+    // function isAdmin() {
+    //   return role() == 'admin';
+    // }
+    // function isManager() {
+    //   return isAdmin() || role() == 'project_manager';
+    // }
+    //
+    // // حقول المجاميع التي يكتبها التطبيق في وثيقة المشروع:
+    // // مخطط + فعلي + معتمد + العدّادات، ولا يدخلها أي مستخدم يدويًا.
+    // function costFields() {
+    //   return ['materialsCost', 'laborCost', 'equipmentCost', 'fuelCost',
+    //           'materialsUnitCost', 'laborUnitCost', 'equipmentUnitCost',
+    //           'fuelUnitCost', 'materialsActualCost', 'laborActualCost',
+    //           'equipmentActualCost', 'fuelActualCost',
+    //           'materialsActualUnitCost', 'laborActualUnitCost',
+    //           'equipmentActualUnitCost', 'fuelActualUnitCost',
+    //           'totalCost', 'actualTotalCost', 'effectiveTotalCost',
+    //           'costsSource', 'costsItemCount', 'costsActualItemCount',
+    //           'costsProjectItemCount', 'costsLineCount',
+    //           'actualCostsLineCount', 'costsModel', 'actualCostsModel',
+    //           'costsUpdatedAt'];
+    // }
+    // function onlyChangesTo(allowed) {
+    //   return request.resource.data.diff(resource.data)
+    //       .affectedKeys().hasOnly(allowed);
+    // }
+    //
+    // match /users/{userId} {
+    //   allow read: if signedIn();
+    //   allow create, delete: if isAdmin();
+    //   allow update: if isAdmin() || request.auth.uid == userId;
+    // }
+    //
+    // match /projects/{projectId} {
+    //   allow read: if signedIn();
+    //   allow create, delete: if isAdmin();
+    //   // المشروع نفسه للمشرف والمدير، وحقول التكاليف للتطبيق فقط.
+    //   allow update: if isAdmin()
+    //       || isManager()
+    //       || (role() == 'supervisor'
+    //           && onlyChangesTo(costFields()));
+    // }
+    //
+    // match /items/{itemId} {
+    //   allow read: if signedIn();
+    //   allow create, delete: if isManager();
+    //   // المشرف يحدّث بندًا هو مشرفه فقط (أسطر التكلفة الفعلية).
+    //   allow update: if isManager()
+    //       || (role() == 'supervisor'
+    //           && resource.data.supervisorId == request.auth.uid);
+    // }
+    //
+    // match /item_details/{itemId} {
+    //   allow read: if signedIn();
+    //   allow write: if isManager()
+    //       || (role() == 'supervisor'
+    //           && get(/databases/$(database)/documents/items/$(itemId))
+    //               .data.supervisorId == request.auth.uid);
+    // }
+    //
+    // // بقية المجموعات (المواد، المعدات، الأنواع، البنود الجاهزة،
+    // // القطاعات والمحافظات): يقرأها الجميع ويكتبها المسؤول أو المدير.
+    // match /{collection}/{docId} {
+    //   allow read: if signedIn();
+    //   allow write: if isAdmin() || isManager();
+    // }
+  }
+}
