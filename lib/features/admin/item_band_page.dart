@@ -233,7 +233,7 @@ class _ItemBandPageState extends State<ItemBandPage> {
                     // تعديل البند
                     // ==================================================
 
-                    await doc!.reference.update({
+                    await doc.reference.update({
                       'name': name,
                       'updatedAt':
                           FieldValue.serverTimestamp(),

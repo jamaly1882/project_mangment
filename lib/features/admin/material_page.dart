@@ -231,7 +231,7 @@ class _MaterialPageState extends State<MaterialPage> {
                     // تعديل المادة
                     // ==================================================
 
-                    await doc!.reference.update({
+                    await doc.reference.update({
                       'name': name,
                       'updatedAt':
                           FieldValue.serverTimestamp(),

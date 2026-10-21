@@ -181,9 +181,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
     }
   }
 
-  /// إجمالي تكلفة البند المخططة = مجموع أسطر الأقسام الأربعة.
-  double get _itemTotalCost => _plannedLines.grandTotal;
-
   double get _itemActualTotal =>
       ProjectCosts.actualTotalOf(_itemData);
 
