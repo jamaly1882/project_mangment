@@ -262,8 +262,8 @@ class _UsersPageState extends State<UsersPage>
                     Expanded(
                       child: Text(
                         isEngineer
-                            ? 'إضافة مهندس'
-                            : 'إضافة مشرف',
+                            ? 'إضافة مهندس مشروع'
+                            : 'إضافة مشرف مشروع',
                         style:
                             AppTextStyles
                                 .sectionTitle,
@@ -647,8 +647,8 @@ class _UsersPageState extends State<UsersPage>
                   ),
                   AppButton(
                     text: isEngineer
-                        ? 'إنشاء المهندس'
-                        : 'إنشاء المشرف',
+                        ? 'إنشاء مهندس مشروع'
+                        : 'إنشاء مشرف مشروع',
                     icon:
                         Icons.person_add,
                     loading: loading,
@@ -807,8 +807,8 @@ class _UsersPageState extends State<UsersPage>
                                       .showSuccess(
                                     context,
                                     isEngineer
-                                        ? 'تم إنشاء المهندس بنجاح'
-                                        : 'تم إنشاء المشرف بنجاح',
+                                        ? 'تم إنشاء مهندس المشروع بنجاح'
+                                        : 'تم إنشاء مشرف المشروع بنجاح',
                                   );
                                 } on FirebaseAuthException catch (e) {
                                   String message =
@@ -1356,8 +1356,8 @@ class _UsersPageState extends State<UsersPage>
         IconButton(
           tooltip:
               _currentIsEngineer
-                  ? 'إضافة مهندس'
-                  : 'إضافة مشرف',
+                  ? 'إضافة مهندس مشروع'
+                  : 'إضافة مشرف مشروع',
           onPressed:
               _addCurrentUser,
           icon: const Icon(
@@ -1393,8 +1393,8 @@ class _UsersPageState extends State<UsersPage>
             ),
             label: Text(
               isEngineer
-                  ? 'إضافة مهندس'
-                  : 'إضافة مشرف',
+                  ? 'إضافة مهندس مشروع'
+                  : 'إضافة مشرف مشروع',
             ),
           );
         },
@@ -1419,7 +1419,7 @@ class _UsersPageState extends State<UsersPage>
               title:
                   'إدارة المستخدمين',
               subtitle:
-                  'إدارة المهندسين والمشرفين وحسابات الدخول',
+                  'إدارة مهندسي ومشرفي المشاريع وحسابات الدخول',
               icon:
                   Icons.people,
             ),
@@ -1469,14 +1469,14 @@ class _UsersPageState extends State<UsersPage>
                       Icons.engineering,
                     ),
                     text:
-                        'المهندسون',
+                        'مهندسو المشاريع',
                   ),
                   Tab(
                     icon: Icon(
                       Icons.supervisor_account,
                     ),
                     text:
-                        'المشرفون',
+                        'مشرفو المشاريع',
                   ),
                 ],
               ),
@@ -1882,8 +1882,8 @@ class _EmptyUsersView
               hasSearch
                   ? 'لا توجد نتائج'
                   : isEngineer
-                      ? 'لا يوجد مهندسون'
-                      : 'لا يوجد مشرفون',
+                      ? 'لا يوجد مهندسو مشاريع'
+                      : 'لا يوجد مشرفو مشاريع',
               style:
                   AppTextStyles
                       .sectionTitle,
@@ -1897,8 +1897,8 @@ class _EmptyUsersView
               hasSearch
                   ? 'لم يتم العثور على مستخدم مطابق للبحث'
                   : isEngineer
-                      ? 'يمكنك إضافة أول مهندس من الزر أدناه'
-                      : 'يمكنك إضافة أول مشرف بنود من الزر أدناه',
+                      ? 'يمكنك إضافة أول مهندس مشروع من الزر أدناه'
+                      : 'يمكنك إضافة أول مشرف مشروع من الزر أدناه',
               style:
                   AppTextStyles
                       .bodySecondary,
@@ -1911,8 +1911,8 @@ class _EmptyUsersView
               AppButton(
                 text:
                     isEngineer
-                        ? 'إضافة مهندس'
-                        : 'إضافة مشرف',
+                        ? 'إضافة مهندس مشروع'
+                        : 'إضافة مشرف مشروع',
                 icon:
                     Icons.person_add,
                 onPressed:

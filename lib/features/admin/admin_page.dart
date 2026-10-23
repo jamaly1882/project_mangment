@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/widgets/app_widgets.dart';
 import 'users_page.dart';
+import 'org_chart_page.dart';
 import 'governorates_page.dart';
 import 'districts_page.dart';
 import 'projects_page.dart';
@@ -110,6 +111,7 @@ class _AdminPageState extends State<AdminPage> {
   void openProjects() => _push(const ProjectsPage());
   void openProjectManagers() => _push(const ProjectManagersPage());
   void openUsers() => _push(const UsersPage());
+  void openOrgChart() => _push(const OrgChartPage());
   void openItemBands() => _push(const ItemBandPage());
 
   /// صفحة أنواع البنود تحتاج اختيار البند أولًا،
@@ -436,6 +438,12 @@ class _AdminPageState extends State<AdminPage> {
                       onTap: openProjects,
                     ),
                     _drawerItem(
+                      icon: Icons.account_tree,
+                      title: 'الهيكل الإداري',
+                      subtitle: 'شجرة المناصب وعدد الشاغلين',
+                      onTap: openOrgChart,
+                    ),
+                    _drawerItem(
                       icon: Icons.people,
                       title: 'المستخدمون',
                       subtitle: 'المهندسون والمشرفون والمحاسبون وغيرهم',
@@ -571,6 +579,12 @@ class _AdminPageState extends State<AdminPage> {
                   onTap: openProjects,
                 ),
                 _managementCard(
+                  icon: Icons.account_tree,
+                  title: 'الهيكل الإداري',
+                  subtitle: 'شجرة المناصب والشاغلون',
+                  onTap: openOrgChart,
+                ),
+                _managementCard(
                   icon: Icons.people,
                   title: 'المستخدمون',
                   subtitle: 'المهندسون والمشرفون والمحاسبون',
@@ -684,6 +698,12 @@ class _AdminPageState extends State<AdminPage> {
                   title: 'إضافة مشروع',
                   subtitle: 'إنشاء مشروع جديد',
                   onTap: addProject,
+                ),
+                _addCard(
+                  icon: Icons.account_tree,
+                  title: 'تعيين منصب',
+                  subtitle: 'إنشاء حساب لأي منصب في الهيكل',
+                  onTap: openOrgChart,
                 ),
                 _addCard(
                   icon: Icons.person_add,

@@ -8,6 +8,7 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/utils/cost_lines.dart';
 import '../../core/utils/costs.dart';
 import '../../core/widgets/app_widgets.dart';
+import '../../core/constants/roles.dart';
 import '../../core/widgets/cost_lines_editor.dart';
 
 /// تفاصيل بند المشروع: اختيار المعدة ومشرف البند وتحديد الاستهلاك المخطط
@@ -402,7 +403,13 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   Stream<QuerySnapshot<Map<String, dynamic>>> _supervisorsStream() {
     return _firestore
         .collection('users')
-        .where('role', isEqualTo: 'supervisor')
+        .where(
+          'role',
+          whereIn: <String>[
+            AppRoles.supervisor,
+            AppRoles.projectSupervisor,
+          ],
+        )
         .where('active', isEqualTo: true)
         .where('projectIds', arrayContains: widget.projectId)
         .snapshots();
@@ -500,7 +507,9 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       // دور السائق هو الدور القديم الذي استُبدل بمشرف البند.
       final bool isSupervisorAccount =
           supervisorData['active'] == true &&
-              (supervisorRole == 'supervisor' || supervisorRole == 'driver');
+              (supervisorRole == AppRoles.supervisor ||
+              supervisorRole == AppRoles.driver ||
+              supervisorRole == AppRoles.projectSupervisor);
 
       if (!isSupervisorAccount) {
         throw Exception('حساب المشرف غير نشط أو ليس حساب مشرف بند');

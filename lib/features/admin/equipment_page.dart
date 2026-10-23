@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../core/constants/roles.dart';
 
 /// صفحة حصر المعدات لمسؤول النظام.
 ///
@@ -78,8 +79,9 @@ class _EquipmentPageState extends State<EquipmentPage> {
         .where(
           'role',
           whereIn: [
-            'supervisor',
-            'driver',
+            AppRoles.supervisor,
+            AppRoles.driver,
+            AppRoles.projectSupervisor,
           ],
         )
         .where(
