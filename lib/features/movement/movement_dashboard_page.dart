@@ -1,7 +1,11 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/constants/roles.dart';
 import '../../core/services/equipment_service.dart';
+import '../admin/department_users_page.dart';
+import '../admin/equipment_page.dart';
+import '../admin/equipment_management_pages.dart' as equipment_data;
 import 'equipment_file_page.dart';
 import 'movement_widgets.dart';
 
@@ -48,6 +52,50 @@ class _MovementDashboardPageState extends State<MovementDashboardPage> {
     Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }
 
+  void _pushPage(Widget page) {
+    Navigator.push(
+      context,
+      MaterialPageRoute<void>(builder: (_) => page),
+    );
+  }
+
+  /// قائمة إدارة الحركة: مستخدمو الإدارة وبياناتها المرجعية.
+  ///
+  /// مدير الحركة هو رئيس هذه الإدارة: ينشئ حسابات مدير
+  /// المحروقات ومدير الورشة والصيانة ومراقب الحركة، ويدير
+  /// صفحات بيانات المعدات المرجعية (كانت في صفحة المشرف
+  /// الرئيسي ونُقلت إلى صاحبها).
+  void _onDeptMenu(String value) {
+    switch (value) {
+      case 'users':
+        _pushPage(
+          DepartmentUsersPage(
+            title: 'مستخدمو إدارة الحركة',
+            subtitle:
+                'تنشئ حسابات إدارتك: مدير المحروقات ومدير الورشة '
+                'والصيانة ومراقب الحركة.',
+            roles: AppRoles.creatableBy(AppRoles.movementDeptManager),
+          ),
+        );
+        break;
+      case 'equipmentDetail':
+        _pushPage(const EquipmentPage());
+        break;
+      case 'consumables':
+        _pushPage(const equipment_data.EquipmentConsumablesPage());
+        break;
+      case 'dieselRules':
+        _pushPage(const equipment_data.DieselConsumptionPage());
+        break;
+      case 'costs':
+        _pushPage(const equipment_data.EquipmentCostsPage());
+        break;
+      case 'reference':
+        _pushPage(const equipment_data.ReferenceDataPage());
+        break;
+    }
+  }
+
   void _openFile(EquipmentDoc equipment) {
     Navigator.push(
       context,
@@ -66,6 +114,37 @@ class _MovementDashboardPageState extends State<MovementDashboardPage> {
           title: const Text('إدارة الحركة — المعدات'),
           centerTitle: true,
           actions: <Widget>[
+            PopupMenuButton<String>(
+              tooltip: 'مستخدمو الإدارة والبيانات المرجعية',
+              icon: const Icon(Icons.more_vert),
+              onSelected: _onDeptMenu,
+              itemBuilder: (_) => const <PopupMenuEntry<String>>[
+                PopupMenuItem(
+                  value: 'users',
+                  child: Text('مستخدمو إدارة الحركة'),
+                ),
+                PopupMenuItem(
+                  value: 'equipmentDetail',
+                  child: Text('حصر المعدات (تفصيلي بالمشرف)'),
+                ),
+                PopupMenuItem(
+                  value: 'consumables',
+                  child: Text('الوحدات الاستهلاكية (مرجعي)'),
+                ),
+                PopupMenuItem(
+                  value: 'dieselRules',
+                  child: Text('معدلات استهلاك الديزل (مرجعي)'),
+                ),
+                PopupMenuItem(
+                  value: 'costs',
+                  child: Text('الإهلاك والإيجار والأعطال (مرجعي)'),
+                ),
+                PopupMenuItem(
+                  value: 'reference',
+                  child: Text('البيانات والأسعار المرجعية'),
+                ),
+              ],
+            ),
             IconButton(
               tooltip: 'تسجيل الخروج',
               icon: const Icon(Icons.logout),

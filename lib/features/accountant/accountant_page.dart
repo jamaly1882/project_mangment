@@ -1,6 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/constants/roles.dart';
 import '../../core/theme/app_colors.dart';
+import '../admin/department_users_page.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_widgets.dart';
 
@@ -71,6 +75,10 @@ class AccountantPage extends StatelessWidget {
             ),
 
             AppSpacing.verticalLg,
+
+            // مستخدمو الإدارة المالية: قسم يظهر للمدير المالي
+            // فقط، لأنه رئيس الإدارة ومن ينشئ حسابات إدارته.
+            const _FinanceUsersSection(),
 
             // =====================================================
             // أقسام الحسابات
@@ -245,6 +253,105 @@ class AccountantPage extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ============================================================
+// قسم «مستخدمو الإدارة المالية» — يظهر للمدير المالي فقط
+// ============================================================
+//
+// المدير المالي رئيس الإدارة المالية، وهو وحده من ينشئ
+// حسابات إدارته (إدارة الحسابات ومحاسب المشروع) عبر
+// DepartmentUsersPage. بقية أدوار هذه الصفحة لا تراه.
+class _FinanceUsersSection extends StatelessWidget {
+  const _FinanceUsersSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final String? uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return const SizedBox.shrink();
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final Object? rawRole = snapshot.data?.data()?['role'];
+        final String role = AppRoles.normalize(rawRole?.toString());
+        if (role != AppRoles.financialManager) {
+          return const SizedBox.shrink();
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const AppSectionTitle(
+              title: 'مستخدمو الإدارة المالية',
+              icon: Icons.group,
+            ),
+            AppSpacing.verticalMd,
+            AppCard(
+              padding: const EdgeInsets.all(18),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => DepartmentUsersPage(
+                      title: 'مستخدمو الإدارة المالية',
+                      subtitle:
+                          'تنشئ حسابات إدارتك: إدارة الحسابات ومحاسب المشروع.',
+                      roles: AppRoles.creatableBy(
+                        AppRoles.financialManager,
+                      ),
+                    ),
+                  ),
+                );
+              },
+              child: Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: AppColors.info.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.group,
+                      color: AppColors.info,
+                    ),
+                  ),
+                  AppSpacingHorizontal.md,
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'إنشاء حسابات الإدارة المالية',
+                          style: AppTextStyles.cardTitle,
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'إدارة الحسابات ومحاسب المشروع — تنشئهم من هنا',
+                          style: AppTextStyles.bodySecondary,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(
+                    Icons.arrow_back_ios,
+                    size: 18,
+                    color: AppColors.textSecondary,
+                  ),
+                ],
+              ),
+            ),
+            AppSpacing.verticalLg,
+          ],
+        );
+      },
     );
   }
 }

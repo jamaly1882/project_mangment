@@ -4,7 +4,7 @@ import '../../core/constants/roles.dart';
 import '../accountant/accountant_page.dart';
 import '../admin/admin_page.dart';
 import '../admin/org_chart_page.dart';
-import '../admin/projects_page.dart';
+import '../admin/projects_dept_dashboard_page.dart';
 import '../driver/driver_page.dart';
 import '../engineer/engineer_page.dart';
 import '../movement/diesel_dashboard_page.dart';
@@ -63,11 +63,12 @@ RoleRoute resolveRoleRoute({
       return const RoleRoute.page(AdminPage());
 
     // ==========================================================
-    // مدير إدارة المشاريع — كل المشاريع
+    // مدير إدارة المشاريع — لوحته: ينشئ المشروع ومهندسه وكل
+    // مستخدمي إدارته، ويحدد البنود والمواد
     // ==========================================================
 
     case AppRoles.projectsDeptManager:
-      return const RoleRoute.page(ProjectsPage());
+      return const RoleRoute.page(ProjectsDeptDashboardPage());
 
     // ==========================================================
     // مهندس المشروع (= مدير المشروع)
