@@ -27,6 +27,9 @@ service cloud.firestore {
     // item_supervisors، item_drivers، item_executions، users،
     // materials، equipment، types، item_definitions، districts،
     // governorates، additional_works وغيرها.
+    // ومجموعات الحركة والديزل والورشة: diesel_consumption_logs،
+    // maintenance_logs، equipment_assignments، project_fuel_daily
+    // (يكتبها EquipmentService بمستخدم مسجّل الدخول ✓).
     match /{document=**} {
       allow read, write: if signedIn();
     }

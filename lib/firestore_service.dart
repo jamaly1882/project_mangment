@@ -19,6 +19,27 @@ class FirestoreService {
   CollectionReference itemsRef() => _db.collection('items');
   CollectionReference itemDetailsRef() => _db.collection('item_details');
 
+  // ===== منظومة الحركة والديزل والورشة (EquipmentService) =====
+
+  /// حصر المعدات — وثيقة كل معدة هي «ملف المعدة».
+  CollectionReference equipmentRef() => _db.collection('equipment');
+
+  /// سجلات صرف الديزل (إدارة الديزل: استهلاك المعدات).
+  CollectionReference dieselLogsRef() =>
+      _db.collection('diesel_consumption_logs');
+
+  /// سجلات الورشة: الأعطال وبدلات التواير وقطع الغيار.
+  CollectionReference maintenanceLogsRef() =>
+      _db.collection('maintenance_logs');
+
+  /// سجل نقل المعدات بين المشاريع (إدارة الحركة).
+  CollectionReference equipmentAssignmentsRef() =>
+      _db.collection('equipment_assignments');
+
+  /// استهلاك الوقود اليومي لكل مشروع (رقم المشروع + كمية اليوم).
+  CollectionReference projectFuelDailyRef() =>
+      _db.collection('project_fuel_daily');
+
   /// إسناد البنود إلى مشرفي البنود ( بدل السائق ).
   CollectionReference itemSupervisorsRef() =>
       _db.collection('item_supervisors');

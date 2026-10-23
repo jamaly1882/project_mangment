@@ -7,6 +7,9 @@ import '../admin/org_chart_page.dart';
 import '../admin/projects_page.dart';
 import '../driver/driver_page.dart';
 import '../engineer/engineer_page.dart';
+import '../movement/diesel_dashboard_page.dart';
+import '../movement/movement_dashboard_page.dart';
+import '../movement/workshop_dashboard_page.dart';
 import '../project_manager/project_manager_dashboard_page.dart';
 import '../supervisor/supervisor_page.dart';
 
@@ -140,15 +143,38 @@ RoleRoute resolveRoleRoute({
       return const RoleRoute.page(AccountantPage());
 
     // ==========================================================
+    // إدارة الحركة — يضيف المعدة وينقلها بين المشاريع،
+    // فتنتقل بياناتها إلى إدارة الديزل والورشة والصيانة.
+    // ==========================================================
+
+    case AppRoles.movementDeptManager:
+      return const RoleRoute.page(MovementDashboardPage());
+
+    // ==========================================================
+    // إدارة الديزل — نافذتا «استهلاك المعدات» (كل معدة بكودها
+    // ورقم مشروعها) و«استهلاك الوقود» (كمية كل مشروع في اليوم).
+    // مدير المحروقات ومراقب الحركة يعملان في اللوحة نفسها.
+    // ==========================================================
+
+    case AppRoles.fuelManager:
+    case AppRoles.movementMonitor:
+      return const RoleRoute.page(DieselDashboardPage());
+
+    // ==========================================================
+    // إدارة الورشة والصيانة — الأعطال وبدلات التواير وقطع
+    // الغيار، وكلها تُضاف إلى ملف المعدة.
+    // ==========================================================
+
+    case AppRoles.workshopManager:
+      return const RoleRoute.page(WorkshopDashboardPage());
+
+    // ==========================================================
     // أدوار الهيكل التي لا تملك لوحة تنفيذية بعد
     //
     // تفتح لها صفحة الهيكل الإداري مع إبراز منصبها ومهامه.
     // ==========================================================
 
     case AppRoles.qualityCostManager:
-    case AppRoles.movementDeptManager:
-    case AppRoles.fuelManager:
-    case AppRoles.movementMonitor:
       return RoleRoute.page(
         OrgChartPage(
           focusRole: AppRoles.normalize(raw),
