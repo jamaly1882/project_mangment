@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/constants/roles.dart';
 import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
@@ -11,16 +12,22 @@ import '../../core/widgets/app_widgets.dart';
 import '../../core/widgets/cost_lines_editor.dart';
 import '../../core/widgets/cost_widgets.dart';
 
-/// صفحة مشرف البند.
+/// صفحة مشرف البند (وصفحة البند وتفاصيله).
 ///
-/// يسجّل المشرف هنا التكاليف الفعلية للبند بأقسامها الأربعة:
-///    المواد، أجور العمالة، المعدات، المحروقات.
+/// المشرف يدخل هنا:
+///   1) الكمية المنفذة التي أُنجزت فعلًا في البند،
+///      فتُضاف إلى الكمية المنفذة السابقة داخل معاملة (Transaction)
+///      ولا تتجاوز الكمية التعاقدية.
+///   2) الاستهلاك الفعلي: ساعات التنفيذ والوقود والزيت المستهلك.
+///   3) التكاليف الفعلية للبند بأقسامها الأربعة:
+///      المواد، أجور العمالة، المعدات، المحروقات.
 ///
 /// ما يدخله المشرف هو «فعلي»، أما ما يدخله مدير المشروع في صفحة
 /// تفاصيل البند فهو «مخطط». وبعد الحفظ تُجمَّع تكاليف المشروع تلقائيًا
 /// من بنوده (لا تُدخل تكاليف المشروع يدويًا أبدًا).
 ///
-/// لا تعدّل هذه الصفحة الاستهلاك ولا كمية تنفيذ البند ولا قراءة العداد.
+/// لا تعدّل هذه الصفحة قراءة عدّاد المعدة ولا بيانات التكليف
+/// (المشرف والمعدة)؛ فهي من صلاحية مدير المشروع.
 class AssignmentDetailsPage extends StatefulWidget {
   final String projectId;
   final String itemId;
@@ -54,6 +61,19 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   List<CostPickerOption> _materialOptions = const <CostPickerOption>[];
   List<CostPickerOption> _equipmentOptions = const <CostPickerOption>[];
 
+  // ============================================================
+  // حقول التنفيذ والاستهلاك الفعلي (يدخلها مشرف البند)
+  // ============================================================
+
+  final TextEditingController _executedQuantityController =
+      TextEditingController();
+  final TextEditingController _workingHoursController = TextEditingController();
+  final TextEditingController _fuelConsumedController = TextEditingController();
+  final TextEditingController _oilConsumedController = TextEditingController();
+
+  bool _savingQuantity = false;
+  bool _savingConsumption = false;
+
   bool _loading = true;
   bool _saving = false;
   String? _errorMessage;
@@ -81,6 +101,11 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
       editor.dispose();
     }
 
+    _executedQuantityController.dispose();
+    _workingHoursController.dispose();
+    _fuelConsumedController.dispose();
+    _oilConsumedController.dispose();
+
     super.dispose();
   }
 
@@ -97,6 +122,19 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
     if (value is num) return value.toDouble();
     if (value == null) return null;
     return double.tryParse(value.toString().trim().replaceAll(',', '.'));
+  }
+
+  /// يضع قيمة رقمية محفوظة في حقل نصي دون كتابة «null».
+  void _setControllerValue(TextEditingController controller, dynamic value) {
+    final number = _toDouble(value);
+    if (number == null || number <= 0) {
+      controller.text = '';
+      return;
+    }
+
+    controller.text = number == number.roundToDouble()
+        ? number.toInt().toString()
+        : number.toString();
   }
 
   String _formatNumber(dynamic value) {
@@ -210,7 +248,7 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
     final standardDoc = await supervisors.doc(widget.itemId).get();
     if (standardDoc.exists) {
       final data = standardDoc.data() ?? <String, dynamic>{};
-      if (data['active'] == true &&
+      if (data['active'] != false &&
           _stringValue(data['supervisorId']) == uid &&
           _stringValue(data['itemId'], fallback: widget.itemId) ==
               widget.itemId &&
@@ -225,7 +263,7 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
         .get();
     for (final doc in oldAssignments.docs) {
       final data = doc.data();
-      if (data['active'] == true &&
+      if (data['active'] != false &&
           _stringValue(data['supervisorId']) == uid &&
           _stringValue(data['projectId']) == widget.projectId) {
         return data;
@@ -275,20 +313,25 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
           await _firestore.collection('users').doc(user.uid).get();
       final userData = userDoc.data() ?? <String, dynamic>{};
 
-      final role = _stringValue(userData['role']);
+      final role = _stringValue(userData['role']).toLowerCase();
 
-      if (!userDoc.exists || role != 'supervisor') {
+      // الحساب القديم `supervisor` والجديد `project_supervisor`
+      // والدور القديم `driver` كلها أدوار مشرف ميداني بعد التطبيع؛
+      // الاعتماد على المقارنة الحرفية كان يمنع مشرف المشروع الجديد
+      // من فتح صفحة البند ويظهر له «هذا الحساب ليس مشرف بند فعلًا».
+      if (!userDoc.exists || !AppRoles.isFieldSupervisor(role)) {
         throw Exception(
-          role == 'driver'
-              ? 'تم استبدال دور السائق بـ «مشرف بند». اطلب من مسؤول '
-                  'النظام تحويل حسابك إلى مشرف بند من صفحة المستخدمين، '
-                  'ثم أعد فتح هذه الصفحة.'
-              : 'هذا الحساب ليس مشرف بند فعلًا.',
+          'هذا الحساب ليس حساب مشرف مشروع '
+          '(${AppRoles.label(role)}). اطلب من مدير إدارة المشاريع '
+          'إنشاء حسابك بدور «مشرف المشروع» وربطه بالمشروع، '
+          'ثم إسناد البنود إليك.',
         );
       }
 
       if (userData['active'] != true) {
-        throw Exception('حسابك موقوف؛ راجع مسؤول النظام.');
+        throw Exception(
+          'حسابك موقوف أو غير مفعّل؛ راجع مسؤول النظام لتفعيل الحساب.',
+        );
       }
 
       var assignment = await _getCurrentAssignment(user.uid);
@@ -341,6 +384,20 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
         details['defaultFuelQuantity'] ?? details['defaultDieselQuantity'],
       );
       _defaultOilQuantity = _toDouble(details['defaultOilQuantity']);
+
+      // الاستهلاك الفعلي المحفوظ سابقًا (ساعات / وقود / زيت).
+      _setControllerValue(
+        _workingHoursController,
+        details['executedWorkingHours'],
+      );
+      _setControllerValue(
+        _fuelConsumedController,
+        details['consumedFuelQuantity'],
+      );
+      _setControllerValue(
+        _oilConsumedController,
+        details['consumedOilQuantity'],
+      );
 
       // أسطر التكاليف الفعلية المحفوظة، مع ترحيل الرقم المفرد القديم
       // إلى سطر واحد قابل للتعديل.
@@ -577,6 +634,280 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   }
 
   // ============================================================
+  // تسجيل الكمية المنفذة
+  // ============================================================
+
+  /// يضيف الكمية التي يدخلها المشرف إلى `executedQuantity`
+  /// في معاملة واحدة، فلا تضيع أي إضافة عند تعدد الأجهزة،
+  /// ولا تتجاوز الكمية التعاقدية.
+  Future<void> _saveExecutedQuantity() async {
+    if (_savingQuantity) return;
+
+    final entered = _toDouble(_executedQuantityController.text);
+
+    if (entered == null || entered <= 0) {
+      AppWidgets.showWarning(
+        context,
+        'أدخل كمية منفذة صحيحة أكبر من صفر.',
+      );
+      return;
+    }
+
+    final user = _auth.currentUser;
+    if (user == null) {
+      AppWidgets.showError(
+        context,
+        'انتهت جلسة تسجيل الدخول؛ سجل الدخول مجددًا.',
+      );
+      return;
+    }
+
+    setState(() => _savingQuantity = true);
+
+    try {
+      // إعادة التحقق من التكليف قبل الكتابة.
+      final assignment = await _getCurrentAssignment(user.uid);
+      if (assignment == null && !await _hasLegacyAssignment(user.uid)) {
+        throw Exception(
+          'لم يعد هذا البند مسندًا إلى حسابك. راجع مدير المشروع.',
+        );
+      }
+
+      final itemRef =
+          _firestore.collection('items').doc(widget.itemId);
+
+      double previousExecuted = 0;
+      double newExecuted = 0;
+      double contractQuantity = 0;
+
+      await _firestore.runTransaction((transaction) async {
+        final snapshot = await transaction.get(itemRef);
+
+        if (!snapshot.exists) {
+          throw Exception('البند غير موجود.');
+        }
+
+        final data = snapshot.data() ?? <String, dynamic>{};
+
+        if (_stringValue(data['projectId']) != widget.projectId) {
+          throw Exception('هذا البند لا يتبع المشروع المحدد.');
+        }
+
+        contractQuantity =
+            ProjectCosts.nonNegative(data['contractQuantity']);
+        previousExecuted =
+            ProjectCosts.nonNegative(data['executedQuantity']);
+        newExecuted = previousExecuted + entered;
+
+        if (contractQuantity > 0 && newExecuted > contractQuantity) {
+          final remaining = (contractQuantity - previousExecuted)
+              .clamp(0.0, double.infinity)
+              .toDouble();
+
+          throw Exception(
+            'الكمية المضافة تتجاوز الكمية التعاقدية. '
+            'المتبقي: ${_formatNumber(remaining)} '
+            '${_stringValue(data['unit'])}',
+          );
+        }
+
+        final updates = <String, dynamic>{
+          'executedQuantity': newExecuted,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'executionUpdatedBy': user.uid,
+          'executionUpdatedAt': FieldValue.serverTimestamp(),
+        };
+
+        // تكلفة التنفيذ = تكلفة الوحدة × الكمية المنفذة الجديدة.
+        final unitCost = ProjectCosts.totalUnitCost(data);
+        if (unitCost > 0) {
+          updates[ProjectCosts.executedCostField] = unitCost * newExecuted;
+        }
+
+        transaction.update(itemRef, updates);
+      });
+
+      // سجل التنفيذ: يظهر في صفحة المهندس وتقارير التنفيذ.
+      final itemData = _itemData ?? const <String, dynamic>{};
+      try {
+        await _firestore.collection('item_executions').add(
+          <String, dynamic>{
+            'itemId': widget.itemId,
+            'projectId': widget.projectId,
+            'projectName': itemData['projectName'],
+            'itemName': _itemName(itemData),
+            'typeName': itemData['typeName'],
+            'executedQuantity': entered,
+            'executedQuantityBefore': previousExecuted,
+            'executedQuantityAfter': newExecuted,
+            'contractQuantity': contractQuantity,
+            'unit': _stringValue(itemData['unit']),
+            'source': 'supervisor',
+            'createdBy': user.uid,
+            'createdAt': FieldValue.serverTimestamp(),
+          },
+        );
+      } catch (e) {
+        debugPrint('تعذر تسجيل حركة التنفيذ: $e');
+      }
+
+      // مزامنة الكمية المنفذة إلى تفاصيل البند.
+      try {
+        await _firestore.collection('item_details').doc(widget.itemId).set(
+          <String, dynamic>{
+            'executedQuantity': newExecuted,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      } catch (e) {
+        debugPrint('تعذر مزامنة الكمية في تفاصيل البند: $e');
+      }
+
+      // تحديث الحالة المحلية فورًا.
+      if (mounted) {
+        setState(() {
+          _itemData = <String, dynamic>{
+            ...(_itemData ?? const <String, dynamic>{}),
+            'executedQuantity': newExecuted,
+          };
+          _detailsData = <String, dynamic>{
+            ...(_detailsData ?? const <String, dynamic>{}),
+            'executedQuantity': newExecuted,
+          };
+        });
+      }
+
+      ProjectCostTotals? projectTotals;
+      try {
+        projectTotals = await ProjectCostSync.applyTotals(widget.projectId);
+      } catch (e) {
+        debugPrint('تعذرت مزامنة تكاليف المشروع: $e');
+      }
+
+      _executedQuantityController.clear();
+
+      if (!mounted) return;
+
+      if (projectTotals != null) {
+        setState(() => _projectTotals = projectTotals);
+      }
+
+      AppWidgets.showSuccess(
+        context,
+        'تم تسجيل الكمية المنفذة: ${_formatNumber(entered)} '
+        '${_stringValue(_itemData?['unit'])}.\n'
+        'إجمالي المنفذ بعد الإضافة: '
+        '${_formatNumber(newExecuted)} '
+        '${_stringValue(_itemData?['unit'])}',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      AppWidgets.showError(
+        context,
+        'تعذر تسجيل الكمية المنفذة:\n'
+        '${e.toString().replaceFirst('Exception: ', '')}',
+      );
+    } finally {
+      if (mounted) setState(() => _savingQuantity = false);
+    }
+  }
+
+  // ============================================================
+  // حفظ الاستهلاك الفعلي (ساعات / وقود / زيت)
+  // ============================================================
+
+  Future<void> _saveConsumption() async {
+    if (_savingConsumption) return;
+
+    final rawValues = <String, String>{
+      'executedWorkingHours': _workingHoursController.text.trim(),
+      'consumedFuelQuantity': _fuelConsumedController.text.trim(),
+      'consumedOilQuantity': _oilConsumedController.text.trim(),
+    };
+
+    final values = <String, double>{};
+
+    for (final entry in rawValues.entries) {
+      if (entry.value.isEmpty) continue;
+
+      final parsed = _toDouble(entry.value);
+      if (parsed == null || parsed < 0) {
+        AppWidgets.showWarning(
+          context,
+          'أدخل أرقامًا صحيحة غير سالبة في حقول الاستهلاك.',
+        );
+        return;
+      }
+
+      values[entry.key] = parsed;
+    }
+
+    if (values.isEmpty) {
+      AppWidgets.showWarning(
+        context,
+        'أدخل ساعات التنفيذ أو الوقود أو الزيت المستهلك أولًا.',
+      );
+      return;
+    }
+
+    final user = _auth.currentUser;
+    if (user == null) {
+      AppWidgets.showError(
+        context,
+        'انتهت جلسة تسجيل الدخول؛ سجل الدخول مجددًا.',
+      );
+      return;
+    }
+
+    setState(() => _savingConsumption = true);
+
+    try {
+      final assignment = await _getCurrentAssignment(user.uid);
+      if (assignment == null && !await _hasLegacyAssignment(user.uid)) {
+        throw Exception(
+          'لم يعد هذا البند مسندًا إلى حسابك. راجع مدير المشروع.',
+        );
+      }
+
+      final update = <String, dynamic>{
+        ...values,
+        'consumptionUpdatedBy': user.uid,
+        'consumptionUpdatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      await _firestore.collection('item_details').doc(widget.itemId).set(
+            update,
+            SetOptions(merge: true),
+          );
+
+      if (!mounted) return;
+
+      setState(() {
+        _detailsData = <String, dynamic>{
+          ...(_detailsData ?? const <String, dynamic>{}),
+          ...values,
+        };
+      });
+
+      AppWidgets.showSuccess(
+        context,
+        'تم حفظ الاستهلاك الفعلي للبند.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      AppWidgets.showError(
+        context,
+        'تعذر حفظ الاستهلاك الفعلي:\n'
+        '${e.toString().replaceFirst('Exception: ', '')}',
+      );
+    } finally {
+      if (mounted) setState(() => _savingConsumption = false);
+    }
+  }
+
+  // ============================================================
   // العرض
   // ============================================================
 
@@ -592,6 +923,166 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
     final name = _stringValue(details['supervisorName']);
     if (name.isNotEmpty) return name;
     return _stringValue(details['driverName'], fallback: 'غير محدد');
+  }
+
+  // ============================================================
+  // بطاقة تسجيل الكمية المنفذة
+  // ============================================================
+
+  Widget _buildExecutionCard() {
+    final item = _itemData ?? <String, dynamic>{};
+    final unit = _stringValue(item['unit']);
+    final contract = ProjectCosts.nonNegative(item['contractQuantity']);
+    final executed = ProjectCosts.nonNegative(item['executedQuantity']);
+    final remaining = contract > 0
+        ? (contract - executed).clamp(0.0, double.infinity).toDouble()
+        : null;
+    final progress = contract <= 0
+        ? 0.0
+        : (executed / contract).clamp(0.0, 1.0).toDouble();
+    final completed = contract > 0 && executed >= contract;
+
+    return AppCard(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const AppSectionTitle(
+            title: 'تسجيل الكمية المنفذة',
+            subtitle:
+                'أدخل الكمية التي نفذتها في هذا البند؛ تُضاف إلى الكمية '
+                'المنفذة السابقة ولا تتجاوز الكمية التعاقدية، وتُحدَّث '
+                'معها تكلفة التنفيذ وتكاليف المشروع تلقائيًا.',
+            icon: Icons.playlist_add_check,
+          ),
+          AppInfoRow(
+            label: 'الكمية التعاقدية',
+            value: contract <= 0
+                ? 'غير محددة'
+                : '${_formatNumber(contract)} $unit',
+            icon: Icons.assignment_outlined,
+          ),
+          AppSpacing.verticalSm,
+          AppInfoRow(
+            label: 'الكمية المنفذة المسجلة',
+            value: '${_formatNumber(executed)} $unit',
+            icon: Icons.done_all,
+          ),
+          AppSpacing.verticalSm,
+          AppInfoRow(
+            label: 'المتبقي',
+            value: remaining == null
+                ? 'غير محدد'
+                : '${_formatNumber(remaining)} $unit',
+            icon: Icons.pending_actions_outlined,
+          ),
+          AppSpacing.verticalMd,
+          AppProgress(
+            value: progress,
+            label: 'نسبة التنفيذ',
+            progressColor: AppColors.supervisor,
+          ),
+          AppSpacing.verticalMd,
+          AppNumberField(
+            controller: _executedQuantityController,
+            label: 'الكمية المنفذة المضافة',
+            hint: 'أدخل الكمية التي أنجزتها الآن',
+            suffixText: unit.isEmpty ? null : unit,
+            prefixIcon: Icons.add_chart,
+            enabled: !completed,
+          ),
+          if (completed) ...[
+            AppSpacing.verticalSm,
+            Text(
+              'اكتملت الكمية التعاقدية لهذا البند.',
+              style: AppTextStyles.small.copyWith(color: AppColors.success),
+              textAlign: TextAlign.center,
+            ),
+          ],
+          AppSpacing.verticalMd,
+          AppButton(
+            label: 'إضافة الكمية المنفذة',
+            icon: Icons.add_task,
+            expanded: true,
+            loading: _savingQuantity,
+            onPressed: completed || _savingQuantity
+                ? null
+                : _saveExecutedQuantity,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // بطاقة الاستهلاك الفعلي
+  // ============================================================
+
+  Widget _buildConsumptionCard() {
+    final details = _detailsData ?? <String, dynamic>{};
+
+    return AppCard(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const AppSectionTitle(
+            title: 'الاستهلاك الفعلي للبند',
+            subtitle:
+                'سجّل ساعات التنفيذ والوقود والزيت المستهلك فعلًا؛ '
+                'تظهر هذه القيم في بطاقة البند لدى لوحة المشرف.',
+            icon: Icons.local_gas_station_outlined,
+          ),
+          AppNumberField(
+            controller: _workingHoursController,
+            label: 'ساعات التنفيذ الفعلية',
+            suffixText: 'ساعة',
+            prefixIcon: Icons.schedule_outlined,
+          ),
+          AppSpacing.verticalSm,
+          AppNumberField(
+            controller: _fuelConsumedController,
+            label: 'الوقود المستهلك',
+            suffixText: 'لتر',
+            prefixIcon: Icons.local_gas_station_outlined,
+          ),
+          AppSpacing.verticalSm,
+          AppNumberField(
+            controller: _oilConsumedController,
+            label: 'الزيت المستهلك',
+            suffixText: 'لتر',
+            prefixIcon: Icons.oil_barrel_outlined,
+          ),
+          AppSpacing.verticalSm,
+          if (_defaultWorkingHours != null ||
+              _defaultFuelQuantity != null ||
+              _defaultOilQuantity != null)
+            Text(
+              'المخطط من مدير المشروع: '
+              '${_defaultWorkingHours == null ? '—' : _formatNumber(_defaultWorkingHours)} ساعة، '
+              '${_defaultFuelQuantity == null ? '—' : _formatNumber(_defaultFuelQuantity)} لتر وقود، '
+              '${_defaultOilQuantity == null ? '—' : _formatNumber(_defaultOilQuantity)} لتر زيت.',
+              style: AppTextStyles.small,
+            ),
+          if (_stringValue(details['consumptionUpdatedBy']).isNotEmpty) ...[
+            AppSpacing.verticalXs,
+            Text(
+              'آخر حفظ للاستهلاك: تم من حسابك.',
+              style: AppTextStyles.small,
+            ),
+          ],
+          AppSpacing.verticalMd,
+          AppButton(
+            label: 'حفظ الاستهلاك الفعلي',
+            icon: Icons.save_outlined,
+            expanded: true,
+            loading: _savingConsumption,
+            onPressed:
+                _savingConsumption ? null : _saveConsumption,
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildItemCard() {
@@ -660,7 +1151,7 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
           ),
           AppSpacing.verticalSm,
           AppInfoRow(
-            label: 'كمية تنفيذ المهندس المسجلة',
+            label: 'الكمية المنفذة المسجلة',
             value: executed == null
                 ? 'لم يسجل بعد'
                 : '${_formatNumber(executed)} $unit',
@@ -744,8 +1235,10 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
           ),
           AppSpacing.verticalMd,
           const Text(
-            'هذه الكميات المخططة للعرض فقط. لا تُغيّر هذه الصفحة '
-            'الاستهلاك أو كمية التنفيذ أو قراءة العداد.',
+            'هذه الكميات المخططة من مدير المشروع للمقارنة. '
+            'ما تسجله أنت في بطاقتي «الكمية المنفذة» و«الاستهلاك '
+            'الفعلي» هو الفعلي، وقراءة عدّاد المعدة تبقى بيد '
+            'إدارة الحركة.',
             style: AppTextStyles.bodySecondary,
           ),
         ],
@@ -951,7 +1444,7 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
-      title: 'متابعة البند وتسجيل التكاليف',
+      title: 'صفحة البند: الكميات المنفذة والتكاليف',
       showBackButton: true,
       child: _loading
           ? const AppLoading(
@@ -994,6 +1487,10 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _buildItemCard(),
+                      AppSpacing.verticalMd,
+                      _buildExecutionCard(),
+                      AppSpacing.verticalMd,
+                      _buildConsumptionCard(),
                       AppSpacing.verticalMd,
                       _buildCostsCard(),
                       AppSpacing.verticalMd,

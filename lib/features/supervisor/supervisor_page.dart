@@ -6,7 +6,8 @@ import '../assignment/assignment_workspace_page.dart';
 // =============================================================
 
 /// لوحة مشرف البند: تعرض البنود المسندة إليه من صفحة تفاصيل البند
-/// لدى مدير المشروع، وتفتح شاشة تسجيل الاستهلاك الفعلي والتكاليف الفعلية.
+/// لدى مدير المشروع بمعداتها ومتابعة تنفيذها، وتفتح صفحة البند التي
+/// يسجّل فيها المشرف الكميات المنفذة والاستهلاك الفعلي والتكاليف.
 ///
 /// هذه اللوحة هي البديل المباشر للوحة السائق القديمة.
 class SupervisorPage extends AssignmentWorkspacePage {
@@ -19,7 +20,8 @@ class SupervisorPage extends AssignmentWorkspacePage {
         );
 }
 
-/// تفاصيل البند للمشرف: الاستهلاك الفعلي + التكاليف الفعلية.
+/// صفحة البند للمشرف: الكميات المنفذة + الاستهلاك الفعلي +
+/// التكاليف الفعلية، مع مقارنتها بما خططه مدير المشروع.
 class SupervisorItemDetailsPage extends AssignmentDetailsPage {
   const SupervisorItemDetailsPage({
     super.key,

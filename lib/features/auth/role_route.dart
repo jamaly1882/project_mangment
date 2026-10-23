@@ -44,14 +44,14 @@ RoleRoute resolveRoleRoute({
 }) {
   final String raw = role.trim().toLowerCase();
 
-  final List<String> projectIds = (data['projectIds'] as List?)
-          ?.map((e) => e.toString().trim())
-          .where((e) => e.isNotEmpty)
-          .toList() ??
-      <String>[];
+  // الربط بالمشروع قد يكون قائمة `projectIds` أو حقلًا مفردًا
+  // `projectId`، وبعض الحسابات القديمة تخزّن القائمة كنص واحد.
+  // نوحّدها كلها في قائمة واحدة حتى لا يُرفض حساب سليم.
+  final List<String> projectIds = _projectIdsFrom(data);
 
-  final String projectId =
-      (data['projectId'] ?? '').toString().trim();
+  final String projectId = projectIds.isNotEmpty
+      ? projectIds.first
+      : (data['projectId'] ?? '').toString().trim();
 
   switch (raw) {
     // ==========================================================
@@ -108,12 +108,10 @@ RoleRoute resolveRoleRoute({
 
     case AppRoles.supervisor:
     case AppRoles.projectSupervisor:
-      if (projectIds.isEmpty) {
-        return const RoleRoute.error(
-          'مشرف المشروع غير مرتبط بأي مشروع',
-        );
-      }
-
+      // لا نمنع مشرف المشروع من الدخول إن لم يكن مربوطًا بمشروع في
+      // وثيقته: لوحة المشرف تقرأ البنود المسندة إليه مباشرة من
+      // item_supervisors، فربما أُسندت إليه بنود دون تحديث users.
+      // ومع قائمة مشاريع فارغة تُعرض كل بنوده المسندة.
       return RoleRoute.page(
         SupervisorPage(projectIds: projectIds),
       );
@@ -192,4 +190,35 @@ RoleRoute resolveRoleRoute({
         'دور المستخدم غير معروف: $role',
       );
   }
+}
+
+// ============================================================
+// أدوات قراءة ارتباط المستخدم بالمشاريع
+// ============================================================
+
+/// يجمع معرّفات مشاريع المستخدم من `projectIds` (قائمة أو نص)
+/// ومن `projectId` المفرد، دون تكرار.
+List<String> _projectIdsFrom(Map<String, dynamic> data) {
+  final List<String> ids = <String>[];
+
+  void add(dynamic value) {
+    final String id = (value ?? '').toString().trim();
+    if (id.isNotEmpty && !ids.contains(id)) {
+      ids.add(id);
+    }
+  }
+
+  final dynamic rawList = data['projectIds'];
+
+  if (rawList is Iterable) {
+    for (final value in rawList) {
+      add(value);
+    }
+  } else {
+    add(rawList);
+  }
+
+  add(data['projectId']);
+
+  return ids;
 }

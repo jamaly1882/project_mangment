@@ -399,7 +399,10 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
     }
   }
 
-  /// حسابات مشرفي البنود المرتبطين بهذا المشروع.
+  /// حسابات مشرفي البنود في النظام؛ يُفلترون على المشروع داخل
+  /// الواجهة حتى يُقبل الربط عبر `projectIds` أو `projectId` المفرد.
+  /// (الاستعلام الثلاثي السابق كان يُسقط المشرفين المرتبطين بحقل
+  /// مفرد أو بحسابات قديمة بلا حقل `active`.)
   Stream<QuerySnapshot<Map<String, dynamic>>> _supervisorsStream() {
     return _firestore
         .collection('users')
@@ -408,11 +411,33 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           whereIn: <String>[
             AppRoles.supervisor,
             AppRoles.projectSupervisor,
+            AppRoles.driver,
           ],
         )
-        .where('active', isEqualTo: true)
-        .where('projectIds', arrayContains: widget.projectId)
         .snapshots();
+  }
+
+  /// هل مشرف البند [data] مرتبط بالمشروع الحالي؟
+  bool _supervisorBelongsToProject(Map<String, dynamic> data) {
+    if (data['active'] == false) return false;
+
+    final Set<String> ids = <String>{};
+
+    final dynamic rawList = data['projectIds'];
+    if (rawList is Iterable) {
+      for (final value in rawList) {
+        final id = (value ?? '').toString().trim();
+        if (id.isNotEmpty) ids.add(id);
+      }
+    } else if (rawList != null) {
+      final id = rawList.toString().trim();
+      if (id.isNotEmpty) ids.add(id);
+    }
+
+    final single = (data['projectId'] ?? '').toString().trim();
+    if (single.isNotEmpty) ids.add(single);
+
+    return ids.contains(widget.projectId);
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _equipmentStream() {
@@ -505,22 +530,16 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       final supervisorRole = _stringValue(supervisorData['role']);
 
       // دور السائق هو الدور القديم الذي استُبدل بمشرف البند.
+      // كل أدوار المشرف الميداني (الجديدة والقديمة) تُقبل بعد التطبيع.
       final bool isSupervisorAccount =
           supervisorData['active'] == true &&
-              (supervisorRole == AppRoles.supervisor ||
-              supervisorRole == AppRoles.driver ||
-              supervisorRole == AppRoles.projectSupervisor);
+              AppRoles.isFieldSupervisor(supervisorRole);
 
       if (!isSupervisorAccount) {
         throw Exception('حساب المشرف غير نشط أو ليس حساب مشرف بند');
       }
 
-      final supervisorProjects = (supervisorData['projectIds'] as List?)
-              ?.map((value) => value.toString())
-              .toSet() ??
-          <String>{};
-
-      if (!supervisorProjects.contains(widget.projectId)) {
+      if (!_supervisorBelongsToProject(supervisorData)) {
         throw Exception(
           'المشرف غير مرتبط بهذا المشروع. اربطه بالمشروع من إدارة المستخدمين أولاً.',
         );
@@ -975,7 +994,11 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const AppLoading(message: 'جاري تحميل المشرفين...');
         }
-        final docs = snapshot.data?.docs ?? [];
+        final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs =
+            (snapshot.data?.docs ??
+                    <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+                .where((doc) => _supervisorBelongsToProject(doc.data()))
+                .toList();
         if (docs.isEmpty) {
           return const AppEmpty(
             message:

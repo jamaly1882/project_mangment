@@ -56,15 +56,15 @@ class AssignmentWorkspacePage extends StatelessWidget {
       return const Stream.empty();
     }
 
+    // نفلتر على المعرّف فقط، ثم نستبعد غير النشط داخل الواجهة.
+    // السبب: شرط `active` مع معرّف المشرف يحتاج فهرسًا مركّبًا في
+    // Firestore، وإذا لم يكن موجودًا يفشل تحميل اللوحة بالكامل،
+    // كما أن بعض السجلات القديمة لا تحتوي الحقل أصلًا.
     return firestore
         .collection(_collectionName)
         .where(
           _idField,
           isEqualTo: user.uid,
-        )
-        .where(
-          'active',
-          isEqualTo: true,
         )
         .snapshots();
   }
@@ -164,7 +164,15 @@ class AssignmentWorkspacePage extends StatelessWidget {
                     );
                   }
 
-                  final assignments = snapshot.data?.docs ?? [];
+                  // السجل نشط ما لم يكن `active` صريحًا بـ false،
+                  // حتى لا تختفي التكليفات القديمة التي لا تحمل الحقل.
+                  final List<QueryDocumentSnapshot<Map<String, dynamic>>>
+                      assignments = (snapshot.data?.docs ??
+                              <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+                          .where(
+                            (doc) => doc.data()['active'] != false,
+                          )
+                          .toList();
 
                   // =================================================
                   // لا توجد بنود
@@ -235,12 +243,14 @@ class AssignmentWorkspacePage extends StatelessWidget {
                       // جلب بيانات البند
                       // =================================================
 
-                      return FutureBuilder<
+                      // StreamBuilder بدل FutureBuilder حتى تتحدث
+                      // الكميات فور تسجيل المشرف لها في صفحة البند.
+                      return StreamBuilder<
                           DocumentSnapshot<Map<String, dynamic>>>(
-                        future: firestore
+                        stream: firestore
                             .collection('items')
                             .doc(itemId)
-                            .get(),
+                            .snapshots(),
                         builder: (
                           context,
                           itemSnapshot,
@@ -321,12 +331,12 @@ class AssignmentWorkspacePage extends StatelessWidget {
                           // item_details/{itemId}
                           // =================================================
 
-                          return FutureBuilder<
+                          return StreamBuilder<
                               DocumentSnapshot<Map<String, dynamic>>>(
-                            future: firestore
+                            stream: firestore
                                 .collection('item_details')
                                 .doc(itemId)
-                                .get(),
+                                .snapshots(),
                             builder: (
                               context,
                               detailsSnapshot,
@@ -759,9 +769,11 @@ class _AssignmentItemCard extends StatelessWidget {
                 child: ElevatedButton.icon(
                   onPressed: onTap,
                   icon: const Icon(Icons.visibility),
-                  label: const Text(
-                    'عرض البند والتفاصيل',
-                    style: TextStyle(
+                  label: Text(
+                    supervisorMode
+                        ? 'عرض البند وتسجيل الكميات'
+                        : 'عرض البند والتفاصيل',
+                    style: const TextStyle(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
