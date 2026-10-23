@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import '../core/constants/roles.dart';
+import '../../core/constants/roles.dart';
 
 /// صفحة حصر المعدات لمسؤول النظام.
 ///

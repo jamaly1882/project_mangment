@@ -577,7 +577,7 @@ class _MovementDashboardPageState extends State<MovementDashboardPage> {
                             try {
                               if (isEdit) {
                                 await _service.updateEquipment(
-                                  equipmentId: existing!.id,
+                                  equipmentId: existing.id,
                                   input: input,
                                 );
                               } else {
