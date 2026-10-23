@@ -513,16 +513,6 @@ class _AssignmentItemCard extends StatelessWidget {
     final defaultOil =
         detailsData['defaultOilQuantity'];
 
-    // =========================================================
-    // القيم الفعلية التي يسجلها المشرف
-    // =========================================================
-
-    final consumedFuelQuantity =
-        detailsData['consumedFuelQuantity'];
-
-    final executedWorkingHours =
-        detailsData['executedWorkingHours'];
-
     return Card(
       margin: const EdgeInsets.only(bottom: 15),
       elevation: 2,
@@ -665,11 +655,11 @@ class _AssignmentItemCard extends StatelessWidget {
               const SizedBox(height: 15),
 
               // =================================================
-              // القيم الافتراضية
+              // الكميات المخططة (من مدير المشروع)
               // =================================================
 
               const Text(
-                'القيم الافتراضية',
+                'الكميات المخططة من مدير المشروع',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -710,51 +700,6 @@ class _AssignmentItemCard extends StatelessWidget {
                     ? 'غير محدد'
                     : '${formatNumber(defaultOil)} لتر',
                 icon: Icons.oil_barrel,
-              ),
-
-              const SizedBox(height: 20),
-
-              // =================================================
-              // بيانات التنفيذ الفعلية
-              // =================================================
-
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: Colors.grey.shade300,
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Text(
-                      'بيانات التنفيذ الفعلية',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textDirection: TextDirection.rtl,
-                    ),
-                    const SizedBox(height: 12),
-                    _Info(
-                      title: 'ساعات التنفيذ',
-                      value: executedWorkingHours == null
-                          ? 'لم تدخل بعد'
-                          : '${formatNumber(executedWorkingHours)} ساعة',
-                      icon: Icons.access_time,
-                    ),
-                    const SizedBox(height: 12),
-                    _Info(
-                      title: 'الوقود المستهلك',
-                      value: consumedFuelQuantity == null
-                          ? 'لم يدخل بعد'
-                          : '${formatNumber(consumedFuelQuantity)} لتر',
-                      icon: Icons.local_gas_station,
-                    ),
-                  ],
-                ),
               ),
 
               const SizedBox(height: 18),

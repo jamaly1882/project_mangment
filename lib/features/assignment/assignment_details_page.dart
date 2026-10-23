@@ -18,9 +18,12 @@ import '../../core/widgets/cost_widgets.dart';
 ///   1) الكمية المنفذة التي أُنجزت فعلًا في البند،
 ///      فتُضاف إلى الكمية المنفذة السابقة داخل معاملة (Transaction)
 ///      ولا تتجاوز الكمية التعاقدية.
-///   2) الاستهلاك الفعلي: ساعات التنفيذ والوقود والزيت المستهلك.
-///   3) التكاليف الفعلية للبند بأقسامها الأربعة:
+///   2) التكاليف الفعلية للبند بأقسامها الأربعة:
 ///      المواد، أجور العمالة، المعدات، المحروقات.
+///
+/// ساعات العمل والوقود والزيت تُسجَّل كأسطر داخل قسمي المعدات
+/// والمحروقات، فلا تُكرَّر في حقول مستقلة (كانت سابقًا بطاقة
+/// «الاستهلاك الفعلي»، وقد أُزيلت لأنها ازدواج مع أسطر التكلفة).
 ///
 /// ما يدخله المشرف هو «فعلي»، أما ما يدخله مدير المشروع في صفحة
 /// تفاصيل البند فهو «مخطط». وبعد الحفظ تُجمَّع تكاليف المشروع تلقائيًا
@@ -62,17 +65,12 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   List<CostPickerOption> _equipmentOptions = const <CostPickerOption>[];
 
   // ============================================================
-  // حقول التنفيذ والاستهلاك الفعلي (يدخلها مشرف البند)
+  // حقل الكمية المنفذة (يدخله مشرف البند)
   // ============================================================
 
   final TextEditingController _executedQuantityController =
       TextEditingController();
-  final TextEditingController _workingHoursController = TextEditingController();
-  final TextEditingController _fuelConsumedController = TextEditingController();
-  final TextEditingController _oilConsumedController = TextEditingController();
-
   bool _savingQuantity = false;
-  bool _savingConsumption = false;
 
   bool _loading = true;
   bool _saving = false;
@@ -102,9 +100,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
     }
 
     _executedQuantityController.dispose();
-    _workingHoursController.dispose();
-    _fuelConsumedController.dispose();
-    _oilConsumedController.dispose();
 
     super.dispose();
   }
@@ -122,19 +117,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
     if (value is num) return value.toDouble();
     if (value == null) return null;
     return double.tryParse(value.toString().trim().replaceAll(',', '.'));
-  }
-
-  /// يضع قيمة رقمية محفوظة في حقل نصي دون كتابة «null».
-  void _setControllerValue(TextEditingController controller, dynamic value) {
-    final number = _toDouble(value);
-    if (number == null || number <= 0) {
-      controller.text = '';
-      return;
-    }
-
-    controller.text = number == number.roundToDouble()
-        ? number.toInt().toString()
-        : number.toString();
   }
 
   String _formatNumber(dynamic value) {
@@ -384,20 +366,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
         details['defaultFuelQuantity'] ?? details['defaultDieselQuantity'],
       );
       _defaultOilQuantity = _toDouble(details['defaultOilQuantity']);
-
-      // الاستهلاك الفعلي المحفوظ سابقًا (ساعات / وقود / زيت).
-      _setControllerValue(
-        _workingHoursController,
-        details['executedWorkingHours'],
-      );
-      _setControllerValue(
-        _fuelConsumedController,
-        details['consumedFuelQuantity'],
-      );
-      _setControllerValue(
-        _oilConsumedController,
-        details['consumedOilQuantity'],
-      );
 
       // أسطر التكاليف الفعلية المحفوظة، مع ترحيل الرقم المفرد القديم
       // إلى سطر واحد قابل للتعديل.
@@ -814,100 +782,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   }
 
   // ============================================================
-  // حفظ الاستهلاك الفعلي (ساعات / وقود / زيت)
-  // ============================================================
-
-  Future<void> _saveConsumption() async {
-    if (_savingConsumption) return;
-
-    final rawValues = <String, String>{
-      'executedWorkingHours': _workingHoursController.text.trim(),
-      'consumedFuelQuantity': _fuelConsumedController.text.trim(),
-      'consumedOilQuantity': _oilConsumedController.text.trim(),
-    };
-
-    final values = <String, double>{};
-
-    for (final entry in rawValues.entries) {
-      if (entry.value.isEmpty) continue;
-
-      final parsed = _toDouble(entry.value);
-      if (parsed == null || parsed < 0) {
-        AppWidgets.showWarning(
-          context,
-          'أدخل أرقامًا صحيحة غير سالبة في حقول الاستهلاك.',
-        );
-        return;
-      }
-
-      values[entry.key] = parsed;
-    }
-
-    if (values.isEmpty) {
-      AppWidgets.showWarning(
-        context,
-        'أدخل ساعات التنفيذ أو الوقود أو الزيت المستهلك أولًا.',
-      );
-      return;
-    }
-
-    final user = _auth.currentUser;
-    if (user == null) {
-      AppWidgets.showError(
-        context,
-        'انتهت جلسة تسجيل الدخول؛ سجل الدخول مجددًا.',
-      );
-      return;
-    }
-
-    setState(() => _savingConsumption = true);
-
-    try {
-      final assignment = await _getCurrentAssignment(user.uid);
-      if (assignment == null && !await _hasLegacyAssignment(user.uid)) {
-        throw Exception(
-          'لم يعد هذا البند مسندًا إلى حسابك. راجع مدير المشروع.',
-        );
-      }
-
-      final update = <String, dynamic>{
-        ...values,
-        'consumptionUpdatedBy': user.uid,
-        'consumptionUpdatedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-
-      await _firestore.collection('item_details').doc(widget.itemId).set(
-            update,
-            SetOptions(merge: true),
-          );
-
-      if (!mounted) return;
-
-      setState(() {
-        _detailsData = <String, dynamic>{
-          ...(_detailsData ?? const <String, dynamic>{}),
-          ...values,
-        };
-      });
-
-      AppWidgets.showSuccess(
-        context,
-        'تم حفظ الاستهلاك الفعلي للبند.',
-      );
-    } catch (e) {
-      if (!mounted) return;
-      AppWidgets.showError(
-        context,
-        'تعذر حفظ الاستهلاك الفعلي:\n'
-        '${e.toString().replaceFirst('Exception: ', '')}',
-      );
-    } finally {
-      if (mounted) setState(() => _savingConsumption = false);
-    }
-  }
-
-  // ============================================================
   // العرض
   // ============================================================
 
@@ -1008,77 +882,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
             onPressed: completed || _savingQuantity
                 ? null
                 : _saveExecutedQuantity,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // بطاقة الاستهلاك الفعلي
-  // ============================================================
-
-  Widget _buildConsumptionCard() {
-    final details = _detailsData ?? <String, dynamic>{};
-
-    return AppCard(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const AppSectionTitle(
-            title: 'الاستهلاك الفعلي للبند',
-            subtitle:
-                'سجّل ساعات التنفيذ والوقود والزيت المستهلك فعلًا؛ '
-                'تظهر هذه القيم في بطاقة البند لدى لوحة المشرف.',
-            icon: Icons.local_gas_station_outlined,
-          ),
-          AppNumberField(
-            controller: _workingHoursController,
-            label: 'ساعات التنفيذ الفعلية',
-            suffixText: 'ساعة',
-            prefixIcon: Icons.schedule_outlined,
-          ),
-          AppSpacing.verticalSm,
-          AppNumberField(
-            controller: _fuelConsumedController,
-            label: 'الوقود المستهلك',
-            suffixText: 'لتر',
-            prefixIcon: Icons.local_gas_station_outlined,
-          ),
-          AppSpacing.verticalSm,
-          AppNumberField(
-            controller: _oilConsumedController,
-            label: 'الزيت المستهلك',
-            suffixText: 'لتر',
-            prefixIcon: Icons.oil_barrel_outlined,
-          ),
-          AppSpacing.verticalSm,
-          if (_defaultWorkingHours != null ||
-              _defaultFuelQuantity != null ||
-              _defaultOilQuantity != null)
-            Text(
-              'المخطط من مدير المشروع: '
-              '${_defaultWorkingHours == null ? '—' : _formatNumber(_defaultWorkingHours)} ساعة، '
-              '${_defaultFuelQuantity == null ? '—' : _formatNumber(_defaultFuelQuantity)} لتر وقود، '
-              '${_defaultOilQuantity == null ? '—' : _formatNumber(_defaultOilQuantity)} لتر زيت.',
-              style: AppTextStyles.small,
-            ),
-          if (_stringValue(details['consumptionUpdatedBy']).isNotEmpty) ...[
-            AppSpacing.verticalXs,
-            Text(
-              'آخر حفظ للاستهلاك: تم من حسابك.',
-              style: AppTextStyles.small,
-            ),
-          ],
-          AppSpacing.verticalMd,
-          AppButton(
-            label: 'حفظ الاستهلاك الفعلي',
-            icon: Icons.save_outlined,
-            expanded: true,
-            loading: _savingConsumption,
-            onPressed:
-                _savingConsumption ? null : _saveConsumption,
           ),
         ],
       ),
@@ -1235,10 +1038,10 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
           ),
           AppSpacing.verticalMd,
           const Text(
-            'هذه الكميات المخططة من مدير المشروع للمقارنة. '
-            'ما تسجله أنت في بطاقتي «الكمية المنفذة» و«الاستهلاك '
-            'الفعلي» هو الفعلي، وقراءة عدّاد المعدة تبقى بيد '
-            'إدارة الحركة.',
+            'هذه الكميات المخططة من مدير المشروع للمقارنة فقط. '
+            'الفعلي تسجّله في بطاقة «الكمية المنفذة» وأسطر التكاليف '
+            'أدناه (ساعات العمل والوقود والزيت سطرًا سطرًا)، وقراءة '
+            'عدّاد المعدة تبقى بيد إدارة الحركة.',
             style: AppTextStyles.bodySecondary,
           ),
         ],
@@ -1489,8 +1292,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
                       _buildItemCard(),
                       AppSpacing.verticalMd,
                       _buildExecutionCard(),
-                      AppSpacing.verticalMd,
-                      _buildConsumptionCard(),
                       AppSpacing.verticalMd,
                       _buildCostsCard(),
                       AppSpacing.verticalMd,
