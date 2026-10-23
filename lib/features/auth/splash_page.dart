@@ -4,13 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'login_page.dart';
+import 'role_route.dart';
 
-import '../admin/admin_page.dart';
-import '../project_manager/project_manager_dashboard_page.dart';
-import '../engineer/engineer_page.dart';
-import '../driver/driver_page.dart';
-import '../supervisor/supervisor_page.dart';
-import '../accountant/accountant_page.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -107,81 +102,28 @@ class _SplashPageState extends State<SplashPage> {
       // التوجيه حسب الدور
       // =====================================================
 
-      switch (role) {
-        case 'admin':
-          _go(
-            const AdminPage(),
-          );
-          return;
+      final RoleRoute route = resolveRoleRoute(
+        role: role,
+        data: data,
+      );
 
-        case 'project_manager':
-          final String projectId =
-              data['projectId']?.toString().trim() ?? '';
+      if (route.hasError) {
+        await auth.signOut();
 
-          if (projectId.isEmpty) {
-            await auth.signOut();
+        if (!mounted) return;
 
-            if (!mounted) return;
+        await _showMessage(
+          route.error!,
+        );
 
-            await _showMessage(
-              'لم يتم ربط مدير المشروع بأي مشروع',
-            );
-
-            _goToLogin();
-            return;
-          }
-
-          _go(
-            ProjectManagerDashboardPage(
-              projectId: projectId,
-            ),
-          );
-          return;
-
-        case 'engineer':
-          _go(
-            const EngineerPage(),
-          );
-          return;
-
-        case 'supervisor':
-        case 'driver':
-          final List<String> projectIds =
-              (data['projectIds'] as List?)
-                      ?.map((e) => e.toString().trim())
-                      .where((e) => e.isNotEmpty)
-                      .toList() ??
-                  <String>[];
-
-          _go(
-            role == 'supervisor'
-                ? SupervisorPage(projectIds: projectIds)
-                : DriverPage(projectIds: projectIds),
-          );
-          return;
-
-        case 'accountant':
-          _go(
-            const AccountantPage(),
-          );
-          return;
-
-        default:
-          debugPrint(
-            'الدور غير معروف: $role',
-          );
-
-          await auth.signOut();
-
-          if (!mounted) return;
-
-          await _showMessage(
-            'دور المستخدم غير معروف',
-          );
-
-          _goToLogin();
-          return;
+        _goToLogin();
+        return;
       }
+
+      _go(
+        route.page!,
+      );
+      return;
     } catch (e, stackTrace) {
       debugPrint('================================');
       debugPrint('Splash Error: $e');

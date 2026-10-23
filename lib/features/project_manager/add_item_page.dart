@@ -7,6 +7,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/utils/costs.dart';
 import '../../core/widgets/app_widgets.dart';
+import '../../core/constants/roles.dart';
 import 'item_details_page.dart';
 
 class AddItemPage extends StatefulWidget {
@@ -398,7 +399,13 @@ class _AddItemPageState extends State<AddItemPage> {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _firestore
           .collection('users')
-          .where('role', isEqualTo: 'engineer')
+          .where(
+            'role',
+            whereIn: <String>[
+              AppRoles.engineer,
+              AppRoles.projectEngineer,
+            ],
+          )
           .where('active', isEqualTo: true)
           .snapshots(),
       builder: (context, snapshot) {

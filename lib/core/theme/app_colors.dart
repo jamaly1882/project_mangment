@@ -67,4 +67,41 @@ class AppColors {
   static const Color accountant = Color(0xFF2E7D32);
 
   static const Color admin = Color(0xFF4527A0);
+
+  // ============================================================
+  // ألوان مناصب الهيكل الإداري
+  // ============================================================
+
+  /// المشرف الرئيسي.
+  static const Color generalManager = Color(0xFF4527A0);
+
+  /// مدير إدارة المشاريع.
+  static const Color projectsDeptManager = Color(0xFF1565C0);
+
+  /// مدير إدارة الجودة والتكلفة.
+  static const Color qualityCostManager = Color(0xFF00838F);
+
+  /// مهندس المشروع (= مدير المشروع).
+  static const Color projectEngineer = Color(0xFF00897B);
+
+  /// مشرف المشروع.
+  static const Color projectSupervisor = Color(0xFF6A1B9A);
+
+  /// مدير إدارة الحركة.
+  static const Color movementDeptManager = Color(0xFFEF6C00);
+
+  /// مدير المحروقات.
+  static const Color fuelManager = Color(0xFFD84315);
+
+  /// مراقب الحركة.
+  static const Color movementMonitor = Color(0xFFF4511E);
+
+  /// المدير المالي.
+  static const Color financialManager = Color(0xFF2E7D32);
+
+  /// إدارة الحسابات.
+  static const Color accountsManager = Color(0xFF33691E);
+
+  /// محاسب المشروع.
+  static const Color projectAccountant = Color(0xFF558B2F);
 }

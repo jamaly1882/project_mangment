@@ -7,11 +7,7 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_widgets.dart';
 
 import '../admin/admin_page.dart';
-import '../project_manager/project_manager_dashboard_page.dart';
-import '../engineer/engineer_page.dart';
-import '../driver/driver_page.dart';
-import '../supervisor/supervisor_page.dart';
-import '../accountant/accountant_page.dart';
+import 'role_route.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({
@@ -326,164 +322,37 @@ class _LoginPageState extends State<LoginPage> {
               .trim();
 
       // ========================================================
-      // المشاريع المرتبطة
+      // التوجيه حسب موقع المستخدم في الهيكل الإداري
       // ========================================================
 
-      final List<String> projectIds =
-          (data['projectIds'] as List?)
-                  ?.map(
-                    (e) =>
-                        e.toString().trim(),
-                  )
-                  .where(
-                    (e) =>
-                        e.isNotEmpty,
-                  )
-                  .toList() ??
-              [];
-
-      // ========================================================
-      // مدير المشروع
-      // ========================================================
-
-      if (role ==
-          'project_manager') {
-        final String projectId =
-            (data['projectId'] ?? '')
-                .toString()
-                .trim();
-
-        // ======================================================
-        // التحقق من ارتباط مدير المشروع بمشروع
-        // ======================================================
-
-        if (projectId.isEmpty) {
-          await _auth.signOut();
-
-          _showMessage(
-            'مدير المشروع غير مرتبط بأي مشروع',
-          );
-
-          return;
-        }
-
-        debugPrint(
-          'Project manager projectId: $projectId',
-        );
-
-        // ======================================================
-        // فتح لوحة مدير المشروع
-        // ======================================================
-
-        if (!mounted) {
-          return;
-        }
-
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-                ProjectManagerDashboardPage(
-              projectId: projectId,
-            ),
-          ),
-          (route) => false,
-        );
-
-        return;
-      }
-
-      // ========================================================
-      // المهندس
-      // ========================================================
-
-      if (role == 'engineer') {
-        if (!mounted) {
-          return;
-        }
-
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-                const EngineerPage(),
-          ),
-          (route) => false,
-        );
-
-        return;
-      }
-
-      // ========================================================
-      // مشرف البند (والسائق في الحسابات القديمة)
-      // ========================================================
-
-      if (role == 'supervisor' || role == 'driver') {
-        final bool isSupervisor = role == 'supervisor';
-
-        if (projectIds.isEmpty) {
-          await _auth.signOut();
-
-          _showMessage(
-            isSupervisor
-                ? 'المشرف غير مرتبط بأي مشروع'
-                : 'السائق غير مرتبط بأي مشروع',
-          );
-
-          return;
-        }
-
-        if (!mounted) {
-          return;
-        }
-
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(
-            builder: (_) => isSupervisor
-                ? SupervisorPage(
-                    projectIds: projectIds,
-                  )
-                : DriverPage(
-                    projectIds: projectIds,
-                  ),
-          ),
-          (route) => false,
-        );
-
-        return;
-      }
-
-      // ========================================================
-      // المحاسب
-      // ========================================================
-
-      if (role == 'accountant') {
-        if (!mounted) {
-          return;
-        }
-
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-                const AccountantPage(),
-          ),
-          (route) => false,
-        );
-
-        return;
-      }
-
-      // ========================================================
-      // دور غير معروف
-      // ========================================================
-
-      await _auth.signOut();
-
-      _showMessage(
-        'دور المستخدم غير معروف: $role',
+      final RoleRoute route = resolveRoleRoute(
+        role: role,
+        data: data,
       );
+
+      if (route.hasError) {
+        await _auth.signOut();
+
+        _showMessage(
+          route.error!,
+        );
+
+        return;
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (_) => route.page!,
+        ),
+        (route) => false,
+      );
+
+      return;
     }
 
     // ============================================================
