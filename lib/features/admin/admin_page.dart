@@ -12,6 +12,9 @@ import 'project_managers_page.dart';
 import 'item_band_page.dart';
 import 'item_types_page.dart';
 import 'material_page.dart' as materials;
+import '../movement/diesel_dashboard_page.dart';
+import '../movement/movement_dashboard_page.dart';
+import '../movement/workshop_dashboard_page.dart';
 import 'equipment_management_pages.dart' as equipment_data;
 import 'equipment_page.dart';
 
@@ -198,6 +201,12 @@ class _AdminPageState extends State<AdminPage> {
   void openMaterials() => _push(const materials.MaterialPage());
 
   void openEquipment() => _push(const EquipmentPage());
+
+  // منظومة الحركة والديزل والورشة المترابطة:
+  // مدير الحركة يضيف المعدة فتنتقل بياناتها إلى الديزل والورشة.
+  void openMovementDept() => _push(const MovementDashboardPage());
+  void openDieselDept() => _push(const DieselDashboardPage());
+  void openWorkshopDept() => _push(const WorkshopDashboardPage());
   void openConsumables() =>
       _push(const equipment_data.EquipmentConsumablesPage());
   void openDieselConsumption() =>
@@ -485,6 +494,29 @@ class _AdminPageState extends State<AdminPage> {
                       icon: Icons.construction,
                       title: 'حصر المعدات',
                       onTap: openEquipment,
+                    ),
+
+                    const Divider(),
+
+                    _sectionLabel('الحركة والديزل والورشة'),
+
+                    _drawerItem(
+                      icon: Icons.local_shipping,
+                      title: 'إدارة الحركة',
+                      subtitle: 'إضافة المعدات ونقلها بين المشاريع وملف كل معدة',
+                      onTap: openMovementDept,
+                    ),
+                    _drawerItem(
+                      icon: Icons.local_gas_station,
+                      title: 'إدارة الديزل',
+                      subtitle: 'استهلاك المعدات واستهلاك الوقود اليومي للمشاريع',
+                      onTap: openDieselDept,
+                    ),
+                    _drawerItem(
+                      icon: Icons.handyman,
+                      title: 'إدارة الورشة والصيانة',
+                      subtitle: 'الأعطال وبدلات التواير وقطع الغيار',
+                      onTap: openWorkshopDept,
                     ),
 
                     const Divider(),

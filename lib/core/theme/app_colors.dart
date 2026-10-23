@@ -96,6 +96,9 @@ class AppColors {
   /// مراقب الحركة.
   static const Color movementMonitor = Color(0xFFF4511E);
 
+  /// مدير الورشة والصيانة.
+  static const Color workshopManager = Color(0xFF6D4C41);
+
   /// المدير المالي.
   static const Color financialManager = Color(0xFF2E7D32);
 
