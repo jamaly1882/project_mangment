@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../../core/constants/roles.dart';
 import 'department_users_page.dart';
 import 'item_band_page.dart';
-import 'item_types_page.dart';
 import 'material_page.dart' as materials;
 import 'project_managers_page.dart';
 import 'projects_page.dart';
@@ -177,7 +176,7 @@ class ProjectsDeptDashboardPage extends StatelessWidget {
               icon: Icons.category_outlined,
               title: 'أنواع البنود',
               subtitle: 'تصنيفات وأنواع البنود',
-              onTap: () => _push(context, const ItemTypesPage()),
+              onTap: () => _push(context, const ItemBandPage()),
             ),
             _tile(
               context,
