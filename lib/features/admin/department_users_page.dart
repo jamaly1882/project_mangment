@@ -470,8 +470,12 @@ class _DepartmentUsersPageState extends State<DepartmentUsersPage> {
                             validator: (value) {
                               final String v = (value ?? '').trim();
                               if (v.isEmpty) return 'اسم المستخدم مطلوب';
-                              if (v.contains(' ') || v.contains('@')) {
-                                return 'بدون مسافات وبدون @';
+                              // اسم المستخدم يصبح بريد الدخول
+                              // (username@users.azal.local) لذا لا يقبل
+                              // إلا الأحرف اللاتينية والأرقام.
+                              if (!RegExp(r'^[A-Za-z0-9._-]+$')
+                                  .hasMatch(v)) {
+                                return 'أحرف إنجليزية وأرقام فقط (يسمح بـ . _ -)';
                               }
                               return null;
                             },
@@ -747,9 +751,12 @@ class _DepartmentUsersPageState extends State<DepartmentUsersPage> {
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortedProjects(
     QuerySnapshot<Map<String, dynamic>>? snapshot,
   ) {
+    // المشاريع النشطة فقط (كما في صفحة المستخدمين السابقة)،
+    // وفرز محلي بالاسم دون فهارس مركبة.
     final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs =
         (snapshot?.docs ??
                 <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+            .where((d) => (d.data()['status'] ?? 'active') == 'active')
             .toList()
           ..sort((a, b) => (a.data()['name'] ?? '')
               .toString()
