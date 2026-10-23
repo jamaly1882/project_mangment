@@ -121,4 +121,29 @@ void main() {
       }
     });
   });
+
+  // ============================================================
+  // التعرف على حساب مشرف البند/المشروع
+  // ============================================================
+  // صفحات إنشاء الحسابات تكتب الدور بصيغ مختلفة:
+  // project_supervisor (الهيكل الجديد) أو supervisor/driver (قديمة).
+  // كلها يجب أن تُعامل كحساب مشرف ميداني واحد.
+
+  group('isFieldSupervisor', () {
+    test('يقبل دور مشرف المشروع الجديد والقديم والسائق القديم', () {
+      expect(AppRoles.isFieldSupervisor(AppRoles.projectSupervisor), isTrue);
+      expect(AppRoles.isFieldSupervisor(AppRoles.supervisor), isTrue);
+      expect(AppRoles.isFieldSupervisor(AppRoles.driver), isTrue);
+      // احتمال وجود مسافات أو حروف كبيرة في البيانات القديمة.
+      expect(AppRoles.isFieldSupervisor(' Project_Supervisor '), isTrue);
+    });
+
+    test('يرفض بقية الأدوار', () {
+      expect(AppRoles.isFieldSupervisor(AppRoles.projectEngineer), isFalse);
+      expect(AppRoles.isFieldSupervisor(AppRoles.qualityCostManager), isFalse);
+      expect(AppRoles.isFieldSupervisor(AppRoles.admin), isFalse);
+      expect(AppRoles.isFieldSupervisor(''), isFalse);
+      expect(AppRoles.isFieldSupervisor(null), isFalse);
+    });
+  });
 }

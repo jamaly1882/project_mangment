@@ -245,6 +245,15 @@ class AppRoles {
     return _legacyAliases[value] ?? value;
   }
 
+  /// هل الدور دور مشرف ميداني (مشرف مشروع/بند)؟
+  ///
+  /// يقبل الدور الجديد `project_supervisor` والأدوار القديمة
+  /// `supervisor` و`driver` بعد التطبيع، فلا يُرفض حساب سليم
+  /// بسبب اختلاف اسم المفتاح بين صفحات الإنشاء.
+  static bool isFieldSupervisor(String? role) {
+    return normalize(role) == projectSupervisor;
+  }
+
   /// هل هذا المفتاح دور قديم؟
   static bool isLegacy(String? role) {
     return _legacyAliases.containsKey(
