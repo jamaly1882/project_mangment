@@ -195,7 +195,10 @@ class AssignmentWorkspacePage extends StatelessWidget {
                             ),
                             child: Text(
                               'ستظهر هنا البنود التي يسندها لك مدير المشروع '
-                              'بعد اختيار مشرف البند في صفحة تفاصيل البند.',
+                              'بعد اختيار مشرف البند في صفحة تفاصيل البند. '
+                              'وبعد إسناد أي بند اضغطه هنا لإدخال تكاليفه '
+                              'الفعلية واستهلاك محروقاته — وستصل محروقاته '
+                              'تلقائيًا إلى مدير المحروقات.',
                               textAlign: TextAlign.center,
                               textDirection: TextDirection.rtl,
                             ),

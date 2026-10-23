@@ -168,14 +168,7 @@ class ProjectsDeptDashboardPage extends StatelessWidget {
               context,
               icon: Icons.list_alt_outlined,
               title: 'بنود العمل',
-              subtitle: 'تعريف بنود الأعمال المستخدمة في المشاريع',
-              onTap: () => _push(context, const ItemBandPage()),
-            ),
-            _tile(
-              context,
-              icon: Icons.category_outlined,
-              title: 'أنواع البنود',
-              subtitle: 'تصنيفات وأنواع البنود',
+              subtitle: 'تعريف بنود الأعمال وأنواع كل بند المستخدمة في المشاريع',
               onTap: () => _push(context, const ItemBandPage()),
             ),
             _tile(

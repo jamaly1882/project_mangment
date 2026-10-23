@@ -11,7 +11,7 @@ import 'movement_widgets.dart';
 // إدارة الديزل — مدير المحروقات ومراقب الحركة
 // ============================================================
 //
-// نافذتان:
+// ثلاث نوافذ:
 //
 //  1) «استهلاك المعدات»: كل سجل صرف فيه المعدة بكودها ورقم
 //     المشروع الذي تعمل فيه (يأتيان تلقائيًا من ربط مدير
@@ -21,6 +21,12 @@ import 'movement_widgets.dart';
 //  2) «استهلاك الوقود»: استهلاك كل مشروع برقمه وكمية
 //     استهلاكه في اليوم (لتر/يوم) وتكلفته — يُجمَّع تلقائيًا
 //     من سجلات النافذة الأولى في `project_fuel_daily`.
+//
+//  3) «استهلاك المشرفين»: محروقات مشرفي المشاريع كما
+//     سجّلوها في بنودهم (التكاليف الفعلية) تصل إلى مدير
+//     المحروقات هنا، مشروعًا بمشروع، بجانب سجلات الديزل
+//     الرسمية لنفس المشروع والفرق بينهما — عرض ومطابقة
+//     فقط دون دمج الأرقام.
 //
 // كل صرف يُضاف أيضًا إلى «ملف المعدة» ومجاميعها.
 // ============================================================
@@ -66,7 +72,7 @@ class _DieselDashboardPageState extends State<DieselDashboardPage> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: DefaultTabController(
-        length: 2,
+        length: 3,
         child: Scaffold(
           appBar: AppBar(
             title: const Text('إدارة الديزل'),
@@ -88,6 +94,10 @@ class _DieselDashboardPageState extends State<DieselDashboardPage> {
                   icon: Icon(Icons.local_gas_station_outlined),
                   text: 'استهلاك الوقود',
                 ),
+                Tab(
+                  icon: Icon(Icons.fact_check_outlined),
+                  text: 'استهلاك المشرفين',
+                ),
               ],
             ),
           ),
@@ -100,6 +110,7 @@ class _DieselDashboardPageState extends State<DieselDashboardPage> {
             children: <Widget>[
               _equipmentConsumptionTab(),
               _fuelConsumptionTab(),
+              _supervisorFuelTab(),
             ],
           ),
         ),
@@ -661,6 +672,308 @@ class _DieselDashboardPageState extends State<DieselDashboardPage> {
         'تم تسجيل الصرف — أُضيف إلى ملف المعدة واستهلاك مشروعها اليومي',
       );
     }
+  }
+
+  // ==========================================================
+  // النافذة الثالثة: استهلاك المشرفين
+  // (محروقات مشرفي المشاريع من بنودهم — مقارنة ومطابقة)
+  // ==========================================================
+
+  Widget _supervisorFuelTab() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('items').snapshots(),
+      builder: (context, itemsSnapshot) {
+        if (itemsSnapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                'تعذر تحميل بنود المشاريع.\n${itemsSnapshot.error}',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          );
+        }
+        if (itemsSnapshot.connectionState == ConnectionState.waiting &&
+            !itemsSnapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final List<SupervisorItemFuel> supervisorItems =
+            <SupervisorItemFuel>[];
+        for (final doc
+            in itemsSnapshot.data?.docs ??
+                <QueryDocumentSnapshot<Map<String, dynamic>>>[]) {
+          final SupervisorItemFuel? fuel =
+              SupervisorFuel.fromItemDoc(doc.id, doc.data());
+          if (fuel != null) supervisorItems.add(fuel);
+        }
+
+        return StreamBuilder<
+            List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+          stream: _service.dieselLogsStream(),
+          builder: (context, logsSnapshot) {
+            final Map<String, double> dieselLiters = <String, double>{};
+            final Map<String, double> dieselCost = <String, double>{};
+            for (final doc
+                in logsSnapshot.data ??
+                    <QueryDocumentSnapshot<Map<String, dynamic>>>[]) {
+              final Map<String, dynamic> d = doc.data();
+              final String projectId =
+                  (d['projectId'] ?? '').toString().trim();
+              if (projectId.isEmpty) continue;
+              dieselLiters[projectId] = (dieselLiters[projectId] ?? 0) +
+                  EquipmentCalc.numOf(d['liters']);
+              dieselCost[projectId] = (dieselCost[projectId] ?? 0) +
+                  EquipmentCalc.numOf(d['totalCost']);
+            }
+
+            return StreamBuilder<List<ProjectOption>>(
+              stream: _service.projectsStream(),
+              builder: (context, projectsSnapshot) {
+                final Map<String, ProjectOption> projectsById =
+                    <String, ProjectOption>{
+                  for (final ProjectOption project
+                      in projectsSnapshot.data ?? <ProjectOption>[])
+                    project.id: project,
+                };
+
+                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('users')
+                      .snapshots(),
+                  builder: (context, usersSnapshot) {
+                    final Map<String, String> namesByUid =
+                        <String, String>{
+                      for (final doc
+                          in usersSnapshot.data?.docs ??
+                              <QueryDocumentSnapshot<
+                                  Map<String, dynamic>>>[])
+                        doc.id: (doc.data()['name'] ?? '').toString(),
+                    };
+                    return _supervisorFuelBody(
+                      supervisorItems: supervisorItems,
+                      dieselLitersByProject: dieselLiters,
+                      dieselCostByProject: dieselCost,
+                      projectsById: projectsById,
+                      namesByUid: namesByUid,
+                    );
+                  },
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _supervisorFuelBody({
+    required List<SupervisorItemFuel> supervisorItems,
+    required Map<String, double> dieselLitersByProject,
+    required Map<String, double> dieselCostByProject,
+    required Map<String, ProjectOption> projectsById,
+    required Map<String, String> namesByUid,
+  }) {
+    final List<ProjectFuelComparison> comparisons = SupervisorFuel.compare(
+      supervisorItems: supervisorItems,
+      dieselLitersByProject: dieselLitersByProject,
+      dieselCostByProject: dieselCostByProject,
+    );
+
+    double totalSupervisorDiesel = 0;
+    double totalDieselLogs = 0;
+    for (final ProjectFuelComparison c in comparisons) {
+      totalSupervisorDiesel += c.supervisorDieselLiters;
+      totalDieselLogs += c.dieselLiters;
+    }
+    final double totalDiff = totalSupervisorDiesel - totalDieselLogs;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
+      children: <Widget>[
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.blue.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+          ),
+          child: const Text(
+            'يصل إلى هنا ما يسجّله مشرف كل مشروع من محروقات داخل '
+            'بنوده (قسم «تكلفة استهلاك المحروقات» في التكاليف '
+            'الفعلية للبند)، لتقارنه — مشروعًا بمشروع — بسجلات '
+            'صرف الديزل الرسمية لمراقب الحركة. عرض ومطابقة فقط: '
+            'يبقى إدخال مراقب الحركة مستقلًا ورسميًا ولا يُدمج مع '
+            'إدخال المشرف.',
+          ),
+        ),
+        const SizedBox(height: 10),
+        MovementStatGrid(
+          stats: <MovementStat>[
+            MovementStat(
+              label: 'مشاريع بالمقارنة',
+              value: '${comparisons.length}',
+              icon: Icons.apartment_outlined,
+            ),
+            MovementStat(
+              label: 'بنود فيها محروقات مشرف',
+              value: '${supervisorItems.length}',
+              icon: Icons.list_alt_outlined,
+              color: Colors.teal,
+            ),
+            MovementStat(
+              label: 'ديزل المشرفين (لتر)',
+              value: fmtNum(totalSupervisorDiesel),
+              icon: Icons.supervisor_account_outlined,
+              color: Colors.deepOrange,
+            ),
+            MovementStat(
+              label: 'ديزل سجلات الحركة (لتر)',
+              value: fmtNum(totalDieselLogs),
+              icon: Icons.local_gas_station_outlined,
+              color: Colors.blue,
+            ),
+            MovementStat(
+              label: 'صافي الفرق (لتر)',
+              value: '${totalDiff > 0 ? '+' : ''}${fmtNum(totalDiff)}',
+              icon: Icons.compare_arrows_outlined,
+              color: totalDiff.abs() < 0.5
+                  ? Colors.green
+                  : Colors.redAccent,
+            ),
+          ],
+        ),
+        const MovementSectionTitle(
+          title: 'مقارنة استهلاك كل مشروع',
+          icon: Icons.fact_check_outlined,
+        ),
+        if (comparisons.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 24),
+            child: MovementEmpty(
+              icon: Icons.fact_check_outlined,
+              message: 'لا يوجد إدخال محروقات بعد',
+              hint: 'عندما يسجّل مشرف مشروع محروقاتَ بنده في '
+                  '«التكاليف الفعلية» تصل إلى هنا فورًا، وتُقارن '
+                  'بسجلات صرف الديزل لنفس المشروع.',
+            ),
+          )
+        else
+          ...comparisons.map(
+            (ProjectFuelComparison c) => _comparisonCard(
+              c,
+              projectsById[c.projectId],
+              namesByUid,
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _comparisonCard(
+    ProjectFuelComparison c,
+    ProjectOption? project,
+    Map<String, String> namesByUid,
+  ) {
+    final String projectLabel = project == null
+        ? 'مشروع غير معروف'
+        : 'مشروع ${project.code.isEmpty ? '—' : project.code}'
+            '${project.name.isEmpty ? '' : ' — ${project.name}'}';
+
+    final double diff = c.litersDiff;
+    final bool matched = diff.abs() < 0.5 &&
+        c.hasDieselLogs &&
+        c.hasSupervisorInput;
+    final Color diffColor = !c.hasDieselLogs || !c.hasSupervisorInput
+        ? Colors.blueGrey
+        : matched
+            ? Colors.green
+            : Colors.redAccent;
+    final String diffText = !c.hasSupervisorInput
+        ? 'لا إدخال من مشرفي هذا المشروع بعد'
+        : !c.hasDieselLogs
+            ? 'لا سجلات ديزل رسمية لهذا المشروع بعد'
+            : matched
+                ? 'مطابق لسجلات الديزل ✓'
+                : 'الفرق في الديزل: ${diff > 0 ? '+' : ''}${fmtNum(diff)} '
+                    'لتر (${diff > 0 ? 'المشرفون أعلى' : 'سجلات الحركة أعلى'}'
+                    '${c.dieselLiters > 0 ? ' — ${fmtNum(c.litersDiffPercent.abs())}٪' : ''})';
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 5),
+      child: ExpansionTile(
+        leading: const CircleAvatar(
+          child: Icon(Icons.apartment_outlined),
+        ),
+        title: Text(
+          projectLabel,
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 5),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                'مشرفو المشروع: ديزل ${fmtNum(c.supervisorDieselLiters)} لتر'
+                '${c.supervisorTotalLiters > c.supervisorDieselLiters ? ' (كل المحروقات ${fmtNum(c.supervisorTotalLiters)} لتر)' : ''}'
+                ' — ${fmtMoney(c.supervisorCost)}\n'
+                'سجلات الديزل (مراقب الحركة): ${fmtNum(c.dieselLiters)} '
+                'لتر — ${fmtMoney(c.dieselCost)}',
+              ),
+              const SizedBox(height: 3),
+              Text(
+                diffText,
+                style: TextStyle(
+                  color: diffColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+        children: <Widget>[
+          if (c.items.isEmpty)
+            const ListTile(
+              dense: true,
+              title: Text(
+                'توجد سجلات ديزل رسمية فقط — لم يسجّل مشرفو هذا '
+                'المشروع محروقات في بنودهم بعد.',
+              ),
+            )
+          else
+            ...c.items.map(
+              (SupervisorItemFuel item) =>
+                  _supervisorItemTile(item, namesByUid),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _supervisorItemTile(
+    SupervisorItemFuel item,
+    Map<String, String> namesByUid,
+  ) {
+    final String supervisorName =
+        (namesByUid[item.supervisorId] ?? '').trim();
+    final String byType = item.litersByType.entries
+        .map((MapEntry<String, double> e) =>
+            '${e.key} ${fmtNum(e.value)} لتر')
+        .join('، ');
+    return ListTile(
+      dense: true,
+      leading: const Icon(Icons.local_gas_station_outlined),
+      title: Text(
+        '${item.itemName}${item.code.isEmpty ? '' : ' — كود ${item.code}'}',
+      ),
+      subtitle: Text(
+        '${supervisorName.isEmpty ? 'المشرف: —' : 'المشرف: $supervisorName'}'
+        '${byType.isEmpty ? '' : '\n$byType'}'
+        '\nالتكلفة: ${fmtMoney(item.cost)}',
+      ),
+    );
   }
 
   Future<void> _deleteLog(

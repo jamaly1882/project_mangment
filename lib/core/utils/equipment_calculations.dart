@@ -530,3 +530,230 @@ class _DayFuelAccumulator {
   int records = 0;
   final Set<String> equipmentIds = <String>{};
 }
+
+
+// ============================================================
+// استهلاك محروقات مشرفي المشاريع — يصل إلى مدير المحروقات
+// ============================================================
+//
+// يسجّل مشرف المشروع محروقات بنوده داخل «التكاليف الفعلية»
+// (قسم «تكلفة استهلاك المحروقات» — حقل fuelActualLines في
+// وثيقة البند). هذه الدوال النقية تقرأ تلك الأسطر وتجمّعها
+// لكل مشروع لتُعرَض عند مدير المحروقات في نافذة «استهلاك
+// المشرفين» بجانب سجلات صرف الديزل الرسمية لمراقب الحركة،
+// والفرق بينهما — عرض ومطابقة فقط: يبقى إدخال مراقب
+// الحركة مستقلًا ورسميًا ولا يُدمج مع إدخال المشرف.
+
+/// محروقات بند واحد كما سجّلها مشرف المشروع.
+class SupervisorItemFuel {
+  const SupervisorItemFuel({
+    required this.itemId,
+    required this.itemName,
+    required this.code,
+    required this.projectId,
+    required this.supervisorId,
+    required this.totalLiters,
+    required this.dieselLiters,
+    required this.cost,
+    required this.litersByType,
+    required this.linesCount,
+  });
+
+  final String itemId;
+  final String itemName;
+  final String code;
+  final String projectId;
+
+  /// معرّف من أدخل التكاليف الفعلية (المشرف) — حقل actualCostsBy.
+  final String supervisorId;
+
+  /// إجمالي لترات كل أنواع الوقود في أسطر البند.
+  final double totalLiters;
+
+  /// لترات الديزل فقط (أساس المقارنة مع سجلات الديزل الرسمية).
+  final double dieselLiters;
+
+  /// إجمالي تكلفة محروقات البند الفعلية.
+  final double cost;
+
+  /// اللترات موزعة على نوع الوقود (ديزل/بترول/زيت...).
+  final Map<String, double> litersByType;
+
+  final int linesCount;
+
+  bool get hasFuel => totalLiters > 0 || cost > 0;
+}
+
+/// مقارنة مشروع واحد عند مدير المحروقات:
+/// ما سجّله مشرفوه في بنودهم مقابل سجلات الديزل الرسمية.
+class ProjectFuelComparison {
+  const ProjectFuelComparison({
+    required this.projectId,
+    required this.supervisorDieselLiters,
+    required this.supervisorTotalLiters,
+    required this.supervisorCost,
+    required this.dieselLiters,
+    required this.dieselCost,
+    required this.items,
+  });
+
+  final String projectId;
+
+  /// ديزل سجّله مشرفو المشروع في بنودهم (لتر).
+  final double supervisorDieselLiters;
+
+  /// كل محروقات المشرفين بأنواعها (لتر).
+  final double supervisorTotalLiters;
+
+  /// تكلفة محروقات المشرفين.
+  final double supervisorCost;
+
+  /// ديزل سجلات الحركة الرسمية لنفس المشروع (لتر).
+  final double dieselLiters;
+
+  /// تكلفة سجلات الديزل الرسمية.
+  final double dieselCost;
+
+  /// بنود المشروع التي فيها محروقات مشرف.
+  final List<SupervisorItemFuel> items;
+
+  /// الفرق في الديزل = المشرفون − سجلات الحركة.
+  double get litersDiff => supervisorDieselLiters - dieselLiters;
+
+  /// الفرق في التكلفة = المشرفون − سجلات الحركة.
+  double get costDiff => supervisorCost - dieselCost;
+
+  /// نسبة فرق الديزل إلى سجلات الحركة (0 عند غيابها).
+  double get litersDiffPercent =>
+      dieselLiters <= 0 ? 0 : (litersDiff / dieselLiters) * 100;
+
+  bool get hasSupervisorInput => items.isNotEmpty;
+  bool get hasDieselLogs => dieselLiters > 0 || dieselCost > 0;
+}
+
+/// قراءة وتجميع محروقات المشرفين من وثائق البنود.
+abstract final class SupervisorFuel {
+  static const String dieselType = 'ديزل';
+
+  /// يستخرج محروقات المشرف من وثيقة بند (items/{id}).
+  /// يعيد null إن لم يكن في البند أي محروقات فعلية.
+  static SupervisorItemFuel? fromItemDoc(
+    String itemId,
+    Map<String, dynamic> data,
+  ) {
+    final String projectId = (data['projectId'] ?? '').toString().trim();
+    if (projectId.isEmpty) return null;
+
+    final Object? rawLines = data['fuelActualLines'];
+    final List<dynamic> lines =
+        rawLines is List ? rawLines : const <dynamic>[];
+
+    double totalLiters = 0;
+    double dieselLiters = 0;
+    double cost = 0;
+    int linesCount = 0;
+    final Map<String, double> litersByType = <String, double>{};
+
+    for (final Object? entry in lines) {
+      if (entry is! Map) continue;
+      final Map<String, dynamic> line = Map<String, dynamic>.from(entry);
+      final double quantity = EquipmentCalc.numOf(line['quantity']);
+      double lineCost = EquipmentCalc.numOf(line['cost']);
+      if (lineCost <= 0) {
+        lineCost = quantity * EquipmentCalc.numOf(line['pricePerLiter']);
+      }
+      if (quantity <= 0 && lineCost <= 0) continue;
+
+      String type = (line['fuelType'] ?? '').toString().trim();
+      if (type.isEmpty) type = dieselType;
+
+      totalLiters += quantity;
+      if (type == dieselType) dieselLiters += quantity;
+      litersByType[type] = (litersByType[type] ?? 0) + quantity;
+      cost += lineCost;
+      linesCount++;
+    }
+
+    if (cost <= 0) {
+      cost = EquipmentCalc.numOf(data['fuelActualCost']);
+    }
+    if (totalLiters <= 0 && cost <= 0) return null;
+
+    String name = (data['itemDefinitionName'] ?? '').toString().trim();
+    if (name.isEmpty) name = (data['name'] ?? '').toString().trim();
+    final String typeName = (data['typeName'] ?? '').toString().trim();
+    if (typeName.isNotEmpty && typeName != name) {
+      name = name.isEmpty ? typeName : '$name — $typeName';
+    }
+    if (name.isEmpty) name = 'بند بدون اسم';
+
+    return SupervisorItemFuel(
+      itemId: itemId,
+      itemName: name,
+      code: (data['code'] ?? '').toString().trim(),
+      projectId: projectId,
+      supervisorId: (data['actualCostsBy'] ?? '').toString().trim(),
+      totalLiters: totalLiters,
+      dieselLiters: dieselLiters,
+      cost: cost,
+      litersByType: litersByType,
+      linesCount: linesCount,
+    );
+  }
+
+  /// يبني مقارنة لكل مشروع: بنود المشرفين + مجاميع سجلات الديزل.
+  static List<ProjectFuelComparison> compare({
+    required List<SupervisorItemFuel> supervisorItems,
+    required Map<String, double> dieselLitersByProject,
+    required Map<String, double> dieselCostByProject,
+  }) {
+    final Map<String, List<SupervisorItemFuel>> byProject =
+        <String, List<SupervisorItemFuel>>{};
+    for (final SupervisorItemFuel item in supervisorItems) {
+      (byProject[item.projectId] ??= <SupervisorItemFuel>[]).add(item);
+    }
+
+    final Set<String> projectIds = <String>{
+      ...byProject.keys,
+      ...dieselLitersByProject.keys,
+      ...dieselCostByProject.keys,
+    };
+
+    final List<ProjectFuelComparison> result = <ProjectFuelComparison>[];
+    for (final String projectId in projectIds) {
+      final List<SupervisorItemFuel> items = List<SupervisorItemFuel>.of(
+        byProject[projectId] ?? const <SupervisorItemFuel>[],
+      )..sort(
+          (SupervisorItemFuel a, SupervisorItemFuel b) =>
+              a.itemName.compareTo(b.itemName),
+        );
+
+      double supervisorDiesel = 0;
+      double supervisorTotal = 0;
+      double supervisorCost = 0;
+      for (final SupervisorItemFuel item in items) {
+        supervisorDiesel += item.dieselLiters;
+        supervisorTotal += item.totalLiters;
+        supervisorCost += item.cost;
+      }
+
+      result.add(
+        ProjectFuelComparison(
+          projectId: projectId,
+          supervisorDieselLiters: supervisorDiesel,
+          supervisorTotalLiters: supervisorTotal,
+          supervisorCost: supervisorCost,
+          dieselLiters: dieselLitersByProject[projectId] ?? 0,
+          dieselCost: dieselCostByProject[projectId] ?? 0,
+          items: items,
+        ),
+      );
+    }
+
+    result.sort(
+      (ProjectFuelComparison a, ProjectFuelComparison b) =>
+          a.projectId.compareTo(b.projectId),
+    );
+    return result;
+  }
+}
