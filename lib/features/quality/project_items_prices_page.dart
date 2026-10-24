@@ -46,6 +46,12 @@ class _ProjectItemsPricesPageState extends State<ProjectItemsPricesPage> {
   String _search = '';
   String? _importingItemId;
 
+  /// استيراد جارٍ لكل بنود المشروع.
+  bool _importingProject = false;
+
+  /// تقدّم الاستيراد: «٣ / ١٢».
+  String? _progress;
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -125,6 +131,104 @@ class _ProjectItemsPricesPageState extends State<ProjectItemsPricesPage> {
     }
   }
 
+  /// استيراد أسعار التحليل لكل بنود المشروع بضغطة واحدة.
+  Future<void> _importProjectAnalysis() async {
+    if (_importingProject || _importingItemId != null) return;
+
+    final user = _auth.currentUser;
+    if (user == null) {
+      AppWidgets.showError(context, 'انتهت جلسة تسجيل الدخول.');
+      return;
+    }
+
+    final confirmed = await AppWidgets.showConfirmDialog(
+      context: context,
+      title: 'استيراد التكاليف لكل بنود المشروع',
+      message: 'سيُطبَّق جدول تحليل الوحدة ($unitAnalysisYear) على '
+          'كل بنود هذا المشروع: '
+          '${unitAnalysisLaborCount} مهنة، '
+          '${unitAnalysisEquipmentCount} معدة، '
+          '${unitAnalysisFuelCount} وقود، '
+          '${unitAnalysisMaterialsCount} مادة.\n\n'
+          'في كل بند: السطر الموجود يُحدَّث سعره، وغير الموجود يُضاف '
+          'بلا كميات (التكلفة صفر حتى يدخل المشرف كمياته).\n'
+          'إعادة الاستيراد لا تُكرر الأسطر. هل تريد المتابعة؟',
+      confirmText: 'استيراد للكل',
+    );
+
+    if (!confirmed) return;
+
+    setState(() {
+      _importingProject = true;
+      _progress = null;
+    });
+
+    try {
+      final result = await UnitAnalysisImporter.importToProject(
+        projectId: widget.projectId,
+        userId: user.uid,
+        onProgress: (done, total) {
+          if (!mounted) return;
+          setState(() => _progress = '$done / $total');
+        },
+      );
+
+      ProjectCostTotals? totals;
+      try {
+        totals = await ProjectCostSync.applyTotals(widget.projectId);
+      } catch (e) {
+        debugPrint('تعذرت مزامنة تكاليف المشروع: $e');
+      }
+
+      if (!mounted) return;
+      setState(() => _importingProject = false);
+
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('نتيجة استيراد التكاليف'),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Text(
+                <String>[
+                  'حُدِّث ${result.itemsUpdated} بندًا من '
+                      '${result.totalItems} في المشروع.',
+                  if (result.updatedPrices > 0)
+                    'أسعار محدَّثة: ${result.updatedPrices}',
+                  if (result.addedLines > 0)
+                    'أسطر مضافة بلا كميات: ${result.addedLines}',
+                  if (result.itemsUpdated == 0)
+                    'كل البنود كانت تحتوي أسطر التحليل بأسعارها.',
+                  if (result.failedItems > 0)
+                    'تعذر استيراد ${result.failedItems} بندًا؛ '
+                        'أعد المحاولة له لاحقًا.',
+                  if (totals != null)
+                    'إجمالي تكلفة المشروع: '
+                        '${ProjectCosts.formatMoney(totals.displayTotal)}',
+                ].join('\n'),
+                style: AppTextStyles.body,
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('حسنًا'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _importingProject = false);
+      AppWidgets.showError(
+        context,
+        'تعذر استيراد التكاليف لكل البنود:\n$e',
+      );
+    }
+  }
+
   void _openItem(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? <String, dynamic>{};
 
@@ -160,6 +264,30 @@ class _ProjectItemsPricesPageState extends State<ProjectItemsPricesPage> {
                   'تكاليف العمالة والمعدات والمحروقات والمواد.',
               icon: Icons.list_alt,
             ),
+            AppSpacing.verticalSm,
+
+            // استيراد التكاليف لكل بنود المشروع بضغطة واحدة.
+            AppButton(
+              label: _importingProject
+                  ? 'جارٍ استيراد التكاليف لكل البنود...'
+                  : 'استيراد التكاليف لكل بنود المشروع '
+                      '($unitAnalysisRowCount سطرًا)',
+              icon: Icons.download_for_offline_outlined,
+              expanded: true,
+              loading: _importingProject,
+              onPressed: _importingProject || _importingItemId != null
+                  ? null
+                  : _importProjectAnalysis,
+            ),
+
+            if (_importingProject) ...[
+              AppSpacing.verticalXs,
+              Text(
+                'جارٍ استيراد التكاليف: ${_progress ?? '...'} بندًا',
+                style: AppTextStyles.small,
+                textAlign: TextAlign.center,
+              ),
+            ],
             AppSpacing.verticalMd,
             AppTextField(
               controller: _searchController,
@@ -218,7 +346,9 @@ class _ProjectItemsPricesPageState extends State<ProjectItemsPricesPage> {
                       final cost = ProjectCosts.totalOf(data);
 
                       return AppCard(
-                        onTap: () => _openItem(doc),
+                        onTap: _importingProject
+                            ? null
+                            : () => _openItem(doc),
                         child: Row(
                           children: [
                             Container(
@@ -265,7 +395,9 @@ class _ProjectItemsPricesPageState extends State<ProjectItemsPricesPage> {
                             else
                               IconButton(
                                 tooltip: 'استيراد أسعار التحليل إلى هذا البند',
-                                onPressed: () => _importAnalysis(doc),
+                                onPressed: _importingProject
+                                    ? null
+                                    : () => _importAnalysis(doc),
                                 icon: const Icon(
                                   Icons.download_for_offline_outlined,
                                   color: AppColors.qualityCostManager,

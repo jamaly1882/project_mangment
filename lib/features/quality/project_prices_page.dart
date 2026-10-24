@@ -2,7 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/constants/unit_analysis_prices.dart';
 import '../../core/services/cost_prices.dart';
+import '../../core/services/unit_analysis_import.dart';
 import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
@@ -49,6 +51,12 @@ class _ProjectPricesPageState extends State<ProjectPricesPage> {
   String _search = '';
   bool _applying = false;
 
+  /// معرّف المشروع الجاري استيراد تكاليفه بضغطة واحدة.
+  String? _importingProjectId;
+
+  /// تقدّم الاستيراد: «٣ / ١٢».
+  String? _progress;
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -66,6 +74,108 @@ class _ProjectPricesPageState extends State<ProjectPricesPage> {
 
     return _text(data['name']).toLowerCase().contains(_search) ||
         _text(data['code']).toLowerCase().contains(_search);
+  }
+
+  /// استيراد أسعار التحليل لكل بنود مشروع بضغطة واحدة (بلا لصق).
+  Future<void> _importAnalysisForProject(
+    Map<String, dynamic> project,
+    String projectId,
+  ) async {
+    if (_applying || _importingProjectId != null) return;
+
+    final user = _auth.currentUser;
+    if (user == null) {
+      AppWidgets.showError(context, 'انتهت جلسة تسجيل الدخول.');
+      return;
+    }
+
+    final name = _text(project['name'], fallback: 'المشروع');
+
+    final confirmed = await AppWidgets.showConfirmDialog(
+      context: context,
+      title: 'استيراد التكاليف لكل بنود المشروع',
+      message: 'سيُطبَّق جدول تحليل الوحدة ($unitAnalysisYear) على '
+          'كل بنود «$name»: '
+          '${unitAnalysisLaborCount} مهنة، '
+          '${unitAnalysisEquipmentCount} معدة، '
+          '${unitAnalysisFuelCount} وقود، '
+          '${unitAnalysisMaterialsCount} مادة.\n\n'
+          'السطر الموجود يُحدَّث سعره، وغير الموجود يُضاف بلا كميات '
+          '(التكلفة صفر حتى يدخل المشرف كمياته).',
+      confirmText: 'استيراد للكل',
+    );
+
+    if (!confirmed) return;
+
+    setState(() {
+      _importingProjectId = projectId;
+      _progress = null;
+    });
+
+    try {
+      final result = await UnitAnalysisImporter.importToProject(
+        projectId: projectId,
+        userId: user.uid,
+        onProgress: (done, total) {
+          if (!mounted) return;
+          setState(() => _progress = '$done / $total');
+        },
+      );
+
+      ProjectCostTotals? totals;
+      try {
+        totals = await ProjectCostSync.applyTotals(projectId);
+      } catch (e) {
+        debugPrint('تعذرت مزامنة تكاليف المشروع: $e');
+      }
+
+      if (!mounted) return;
+      setState(() => _importingProjectId = null);
+
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('نتيجة استيراد التكاليف'),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Text(
+                <String>[
+                  'حُدِّث ${result.itemsUpdated} بندًا من '
+                      '${result.totalItems} في المشروع.',
+                  if (result.updatedPrices > 0)
+                    'أسعار محدَّثة: ${result.updatedPrices}',
+                  if (result.addedLines > 0)
+                    'أسطر مضافة بلا كميات: ${result.addedLines}',
+                  if (result.itemsUpdated == 0)
+                    'كل البنود كانت تحتوي أسطر التحليل بأسعارها.',
+                  if (result.failedItems > 0)
+                    'تعذر استيراد ${result.failedItems} بندًا؛ '
+                        'أعد المحاولة له لاحقًا.',
+                  if (totals != null)
+                    'إجمالي تكلفة المشروع: '
+                        '${ProjectCosts.formatMoney(totals.displayTotal)}',
+                ].join('\n'),
+                style: AppTextStyles.body,
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('حسنًا'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _importingProjectId = null);
+      AppWidgets.showError(
+        context,
+        'تعذر استيراد التكاليف لكل البنود:\n$e',
+      );
+    }
   }
 
   Future<void> _importFor(
@@ -249,6 +359,16 @@ class _ProjectPricesPageState extends State<ProjectPricesPage> {
                 padding: EdgeInsets.only(bottom: 12),
                 child: AppLoading(message: 'جاري تطبيق الأسعار على البنود...'),
               ),
+            if (_importingProjectId != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  'جارٍ استيراد التكاليف لكل البنود: '
+                  '${_progress ?? '...'}',
+                  style: AppTextStyles.small,
+                  textAlign: TextAlign.center,
+                ),
+              ),
             Expanded(
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: _firestore.collection('projects').snapshots(),
@@ -330,14 +450,37 @@ class _ProjectPricesPageState extends State<ProjectPricesPage> {
                                   ),
                                   AppSpacing.verticalXs,
                                   const Text(
-                                    'اضغط لاختيار البند ولصق جدول أسعاره',
+                                    'اضغط لاختيار بند، أو ⬇ لاستيراد '
+                                    'التكاليف لكل بنوده',
                                     style: AppTextStyles.bodySecondary,
                                   ),
                                 ],
                               ),
                             ),
+                            if (_importingProjectId == doc.id)
+                              const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            else
+                              IconButton(
+                                tooltip: 'استيراد التكاليف لكل بنود المشروع '
+                                    '(133 سطرًا) بلا لصق',
+                                onPressed: _applying
+                                    ? null
+                                    : () => _importAnalysisForProject(
+                                          data,
+                                          doc.id,
+                                        ),
+                                icon: const Icon(
+                                  Icons.download_for_offline_outlined,
+                                  color: AppColors.qualityCostManager,
+                                ),
+                              ),
                             IconButton(
-                              tooltip: 'تطبيق على كل بنود المشروع',
+                              tooltip: 'لصق جدول مختلف لكل بنود المشروع',
                               onPressed: _applying
                                   ? null
                                   : () => _importFor(data, doc.id),

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 
 import '../constants/unit_analysis_prices.dart';
 import '../utils/cost_lines.dart';
@@ -169,6 +170,7 @@ class UnitAnalysisImporter {
   static Future<ProjectUnitAnalysisResult> importToProject({
     required String projectId,
     required String userId,
+    void Function(int done, int total)? onProgress,
   }) async {
     final snapshot = await _firestore
         .collection('items')
@@ -179,30 +181,44 @@ class UnitAnalysisImporter {
       throw Exception('لا توجد بنود في هذا المشروع بعد.');
     }
 
+    final total = snapshot.docs.length;
+
     var items = 0;
     var prices = 0;
     var lines = 0;
+    var failed = 0;
 
-    for (final doc in snapshot.docs) {
-      final result = await importToItem(
-        itemId: doc.id,
-        projectId: projectId,
-        userId: userId,
-        actualToo: false,
-      );
+    for (var index = 0; index < total; index++) {
+      final doc = snapshot.docs[index];
 
-      if (result.updatedPrices == 0 && result.addedLines == 0) continue;
+      try {
+        final result = await importToItem(
+          itemId: doc.id,
+          projectId: projectId,
+          userId: userId,
+          actualToo: false,
+        );
 
-      items++;
-      prices += result.updatedPrices;
-      lines += result.addedLines;
+        if (result.updatedPrices > 0 || result.addedLines > 0) {
+          items++;
+          prices += result.updatedPrices;
+          lines += result.addedLines;
+        }
+      } catch (e) {
+        // بند واحد لا يوقف بقية المشروع.
+        debugPrint('تعذر استيراد التكاليف للبند ${doc.id}: $e');
+        failed++;
+      }
+
+      onProgress?.call(index + 1, total);
     }
 
     return ProjectUnitAnalysisResult(
       itemsUpdated: items,
-      totalItems: snapshot.docs.length,
+      totalItems: total,
       updatedPrices: prices,
       addedLines: lines,
+      failedItems: failed,
     );
   }
 }
@@ -227,10 +243,14 @@ class ProjectUnitAnalysisResult {
     required this.totalItems,
     required this.updatedPrices,
     required this.addedLines,
+    this.failedItems = 0,
   });
 
   final int itemsUpdated;
   final int totalItems;
   final int updatedPrices;
   final int addedLines;
+
+  /// بنود تعذر استيرادها (لا توقف بقية المشروع).
+  final int failedItems;
 }
