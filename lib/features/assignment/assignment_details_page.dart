@@ -1298,8 +1298,8 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
                 AppSpacing.horizontalSm,
                 Expanded(
                   child: Text(
-                    'الأسعار يحدّدها مدير إدارة الجودة من صفحة '
-                    '«أسعار التكاليف»، ولك إدخال الكميات فقط.',
+                    'الأسعار منقولة من مدير إدارة الجودة وتظهر لك '
+                    'للقراءة فقط — أدخل الكميات.',
                     style: AppTextStyles.bodySecondary,
                   ),
                 ),
@@ -1317,15 +1317,15 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
                   : (schema.kind == CostLineKind.equipment
                       ? _equipmentOptions
                       : const <CostPickerOption>[]),
-              // الأسعار صلاحية مدير إدارة الجودة: لا تُعرض للمشرف،
-              // وتبقى قيمها محفوظة ويُحسب بها إجمالي السطر.
-              hiddenKeys: const <String>{
+              // الأسعار منقولة من مدير إدارة الجودة: تظهر للمشرف
+              // للقراءة فقط، ويُحسب بها إجمالي السطر.
+              readOnlyKeys: const <String>{
                 'unitPrice',
                 'wage',
                 'pricePerLiter',
               },
               trailingNote: 'السعر (سعر الوحدة / الأجرة / سعر اللتر) '
-                  'يُحدّده مدير إدارة الجودة؛ أدخل الكميات فقط.',
+                  'منقول من إدارة الجودة — للقراءة فقط؛ أدخل الكميات.',
               accent: _accentFor(schema.kind),
               onChanged: () {
                 if (mounted) setState(() {});
