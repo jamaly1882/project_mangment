@@ -101,10 +101,9 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
 
   /// هل طلب المستخدم تغيير المشرف المقترح يدويًا؟
   bool _showSupervisorPicker = false;
-  String? _selectedEquipmentId;
 
-  /// يمكن أن يعمل على البند أكثر من معدة. القائمة هي المصدر،
-  /// والحقل المفرد يبقى أول معدة للتوافق مع بقية الصفحات.
+  /// يمكن أن يعمل على البند أكثر من معدة. القائمة هي المصدر الوحيد؛
+  /// أول معدة فيها تُحفظ أيضًا في الحقول المفردة للتوافق مع بقية الصفحات.
   List<String> _selectedEquipmentIds = <String>[];
   /// مجموع تكاليف بقية بنود المشروع،
   /// لأن تكلفة المشروع تُحسب تلقائيًا من بنوده.
@@ -334,9 +333,8 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       }
 
       _selectedEquipmentIds = savedEquipmentIds;
-      _selectedEquipmentId = savedEquipmentIds.isEmpty ? null : savedEquipmentIds.first;
-      String? projectName;
 
+      String? projectName;
 
       final projectDoc = await _firestore.collection('projects').doc(widget.projectId).get();
       if (projectDoc.exists) {
@@ -796,7 +794,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       if (!mounted) return;
       setState(() {
         _selectedSupervisorName = supervisorDisplayName;
-        _selectedEquipmentId = equipmentId;
       });
       // تكاليف المشروع = مجموع تكاليف بنوده.
       ProjectCostTotals? projectTotals;
@@ -1124,11 +1121,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
                     doc.id,
                   ];
                 }
-
-                _selectedEquipmentId = _selectedEquipmentIds.isEmpty
-                    ? null
-                    : _selectedEquipmentIds.first;
-
               });
             },
       avatar: Icon(
