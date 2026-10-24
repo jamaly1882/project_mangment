@@ -320,6 +320,98 @@ class CostLinesEditorController extends ChangeNotifier {
   TextEditingController costControllerOf(int index) =>
       _row(index)!.costController;
 
+  // ==========================================================
+  // جداول الاختيار: مطابقة أسماء الجدول بالأسطر المحفوظة
+  // ==========================================================
+
+  /// فهرس السطر المطابق لاسم في جدول التحليل، أو -1.
+  ///
+  /// نفضّل التساوي التام أولًا، ثم المطابقة المرنة، حتى لا يُطابق
+  /// «أسمنت» سطر «خالطة أسمنتية» عند وجودهما معًا.
+  int indexOfLabel(String label) {
+    final titleKey = schema.titleKey;
+    final wanted = normalizedLineName(label);
+
+    for (var i = 0; i < _rows.length; i++) {
+      if (normalizedLineName(textOf(i, titleKey)) == wanted) return i;
+    }
+
+    for (var i = 0; i < _rows.length; i++) {
+      if (sameLineName(textOf(i, titleKey), label)) return i;
+    }
+
+    return -1;
+  }
+
+  bool hasLabel(String label) => indexOfLabel(label) >= 0;
+
+  /// يضمن وجود سطر باسم من الجدول: يُضاف بالسعر إن لم يكن، ويُعاد فهرسه.
+  int ensureLabel(String label, double price) {
+    final existing = indexOfLabel(label);
+
+    if (existing >= 0) return existing;
+
+    addRow(buildCostLine(kind: schema.kind, label: label, price: price));
+
+    return _rows.length - 1;
+  }
+
+  /// مفاتيح الكميات في القسم (التي منها تُحسب التكلفة).
+  static List<String> quantityKeysOf(CostLineKind kind) {
+    switch (kind) {
+      case CostLineKind.material:
+      case CostLineKind.fuel:
+        return const <String>['quantity'];
+      case CostLineKind.equipment:
+        return const <String>['count', 'quantity'];
+      case CostLineKind.labor:
+        return const <String>['count', 'duration'];
+    }
+  }
+
+  bool hasQuantity(int index) {
+    if (index < 0 || index >= _rows.length) return false;
+
+    for (final key in quantityKeysOf(schema.kind)) {
+      if (ProjectCosts.parseNumber(textOf(index, key)) > 0) return true;
+    }
+
+    return false;
+  }
+
+  /// تصفير كميات السطر مع بقاء الاسم والسعر (إلغاء ✓ في الجدول).
+  void zeroQuantities(int index) {
+    final row = _row(index);
+    if (row == null) return;
+
+    for (final key in quantityKeysOf(schema.kind)) {
+      row.controllers[key]?.text = '0';
+    }
+
+    _onChange();
+  }
+
+  /// تعليم سطر في الجدول: يضمن وجوده ويضع كمية ابتدائية ١.
+  int selectLabel(String label, double price) {
+    final index = ensureLabel(label, price);
+
+    for (final key in quantityKeysOf(schema.kind)) {
+      if (ProjectCosts.parseNumber(textOf(index, key)) <= 0) {
+        setText(index, key, '1');
+      }
+    }
+
+    return index;
+  }
+
+  /// إلغاء تعليم سطر: يبقى السطر ويُصفَّر (لا يُحذف).
+  void deselectLabel(String label) {
+    final index = indexOfLabel(label);
+    if (index < 0) return;
+
+    zeroQuantities(index);
+  }
+
   String? idOf(int index) => _row(index)?.id;
 
   bool isManual(int index) => _row(index)?.manual ?? false;

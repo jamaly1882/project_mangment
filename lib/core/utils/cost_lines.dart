@@ -903,3 +903,99 @@ class CostLinesDiff {
     return delta > 0 ? 'تجاوز المخطط بمقدار $text' : 'أقل من المخطط بمقدار $text';
   }
 }
+
+// ============================================================
+// بناء سطر تكلفة جديد + مطابقة أسماء الأسطر
+// ============================================================
+
+/// يبني سطر تكلفة لقسم معيّن: الاسم والسعر وبلا كميات.
+///
+/// يُستخدم في الاستيراد، وفي بذور البند الجديد، وفي جداول الاختيار
+/// (عند تعليم سطر من جدول التحليل).
+Map<String, dynamic> buildCostLine({
+  required CostLineKind kind,
+  required String label,
+  required double price,
+}) {
+  switch (kind) {
+    case CostLineKind.material:
+      return <String, dynamic>{
+        'materialName': label,
+        // الوحدة مطلوبة في السطر: نأخذ أول وحدة مناسبة لاسم المادة.
+        'unit': MaterialUnits.forName(label).first,
+        'unitPrice': price,
+        'quantity': 0,
+        CostLineSchema.excludedKey: false,
+      };
+    case CostLineKind.labor:
+      // العدد ١ بلا مدة: يظهر السطر بالسعر، وتكلفته صفر حتى يدخل
+      // المشرف المدة (أو العدد) الفعلية.
+      return <String, dynamic>{
+        'job': label,
+        'wageBasis': 'للوحدة',
+        'count': 1,
+        'wage': price,
+        'duration': 0,
+        CostLineSchema.excludedKey: false,
+      };
+    case CostLineKind.equipment:
+      return <String, dynamic>{
+        'equipmentType': label,
+        'count': 1,
+        'unit': 'ساعة',
+        'unitPrice': price,
+        'quantity': 0,
+        CostLineSchema.excludedKey: false,
+      };
+    case CostLineKind.fuel:
+      return <String, dynamic>{
+        'fuelType': label,
+        'quantity': 0,
+        'unit': 'لتر',
+        'pricePerLiter': price,
+        CostLineSchema.excludedKey: false,
+      };
+  }
+}
+
+/// اسم السطر بعد التوحيد: بلا تشكيل، وهمزات موحّدة، وبلا «ال» التعريف.
+String normalizedLineName(String value) {
+  var text = value.toLowerCase();
+
+  const diacritics = <String>[
+    '\u064B', '\u064C', '\u064D', '\u064E', '\u064F', '\u0650',
+    '\u0651', '\u0652', '\u0653', '\u0654', '\u0655', '\u0640',
+  ];
+
+  for (final mark in diacritics) {
+    text = text.replaceAll(mark, '');
+  }
+
+  text = text
+      .replaceAll(RegExp('[أإآٱ]'), 'ا')
+      .replaceAll('ى', 'ي')
+      .replaceAll('ة', 'ه')
+      .replaceAll('ؤ', 'و')
+      .replaceAll('ئ', 'ي')
+      .trim();
+
+  // «الإسمنت» و«أسمنت» اسم واحد.
+  if (text.startsWith('ال') && text.length > 3) {
+    text = text.substring(2);
+  }
+
+  return text;
+}
+
+/// مطابقة اسمي سطر: توحيد الحروف ثم التساوي أو البدء بنفس الكلمة.
+///
+/// لا نستخدم «يحتوي» حتى لا يُطابق «أسمنت» سطر «خالطة أسمنتية».
+bool sameLineName(String a, String b) {
+  final left = normalizedLineName(a);
+  final right = normalizedLineName(b);
+
+  if (left.isEmpty || right.isEmpty) return false;
+  if (left == right) return true;
+
+  return left.startsWith(right) || right.startsWith(left);
+}

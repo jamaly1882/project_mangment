@@ -298,47 +298,8 @@ class CostPrices {
 
   /// سطر جديد من مخطط التحليل: السعر فقط، والكمية صفر، والتكلفة صفر.
   /// يدخل المشرف الكميات لاحقًا من صفحة البند.
-  static Map<String, dynamic> newLine(CostLineKind kind, PriceEntry entry) {
-    switch (kind) {
-      case CostLineKind.material:
-        return <String, dynamic>{
-          'materialName': entry.label,
-          // الوحدة مطلوبة في السطر: نأخذ أول وحدة مناسبة لاسم المادة.
-          'unit': MaterialUnits.forName(entry.label).first,
-          'unitPrice': entry.price,
-          'quantity': 0,
-          CostLineSchema.excludedKey: false,
-        };
-      case CostLineKind.labor:
-        // العدد ١ بلا مدة: يظهر السطر بالسعر، وتكلفته صفر حتى يدخل
-        // المشرف المدة (أو العدد) الفعلية.
-        return <String, dynamic>{
-          'job': entry.label,
-          'wageBasis': 'للوحدة',
-          'count': 1,
-          'wage': entry.price,
-          'duration': 0,
-          CostLineSchema.excludedKey: false,
-        };
-      case CostLineKind.equipment:
-        return <String, dynamic>{
-          'equipmentType': entry.label,
-          'count': 1,
-          'unit': 'ساعة',
-          'unitPrice': entry.price,
-          'quantity': 0,
-          CostLineSchema.excludedKey: false,
-        };
-      case CostLineKind.fuel:
-        return <String, dynamic>{
-          'fuelType': entry.label,
-          'quantity': 0,
-          'unit': 'لتر',
-          'pricePerLiter': entry.price,
-          CostLineSchema.excludedKey: false,
-        };
-    }
-  }
+  static Map<String, dynamic> newLine(CostLineKind kind, PriceEntry entry) =>
+      buildCostLine(kind: kind, label: entry.label, price: entry.price);
 
   /// هل يطابق السطر اسم سطر التحليل؟
   static bool matches(String lineLabel, String entryLabel) {

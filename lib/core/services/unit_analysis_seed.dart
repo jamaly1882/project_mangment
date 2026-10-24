@@ -1,6 +1,5 @@
 import '../constants/unit_analysis_prices.dart';
 import '../utils/cost_lines.dart';
-import 'cost_prices.dart';
 
 /// ============================================================
 /// بذور أسعار التحليل للبند الجديد
@@ -54,16 +53,27 @@ class UnitAnalysisSeed {
       'وقود ${unitAnalysisFuelCount} · '
       'مواد ${unitAnalysisMaterialsCount}';
 
+  /// أسطر التحليل الخام لقسم واحد (تُستخدم في جداول الاختيار).
+  static List<UnitAnalysisRow> rowsOf(CostLineKind kind) {
+    switch (kind) {
+      case CostLineKind.labor:
+        return unitAnalysisLabor;
+      case CostLineKind.equipment:
+        return unitAnalysisEquipment;
+      case CostLineKind.fuel:
+        return unitAnalysisFuel;
+      case CostLineKind.material:
+        return unitAnalysisMaterials;
+    }
+  }
+
   static List<Map<String, dynamic>> _build(
     CostLineKind kind,
     List<UnitAnalysisRow> rows,
   ) {
     return <Map<String, dynamic>>[
       for (final row in rows)
-        CostPrices.newLine(
-          kind,
-          PriceEntry(label: row.name, kind: kind, price: row.amount),
-        ),
+        buildCostLine(kind: kind, label: row.name, price: row.amount),
     ];
   }
 }
