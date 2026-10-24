@@ -1273,8 +1273,13 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
               schema: schema,
               controller: _costEditors[schema.kind]!,
               priceEditable: false,
-              trailingNote: 'علّم ✓ على السطر ثم أدخل الكميات؛ '
-                  'السعر منقول من إدارة الجودة — للقراءة فقط.',
+              // نفس تجربة مدير الجودة: القسم يبدأ فارغًا والبحث يكشف الأسطر.
+              searchFirst: true,
+              quantitySelection: false,
+              // الإضافة من البحث تبدأ بكمية ١ فتظهر التكلفة فورًا.
+              autoQuantityOnAdd: true,
+              trailingNote: 'ابحث بالاسم ثم اضغط ＋ لإضافة السطر، '
+                  'وأدخل الكميات؛ السعر من إدارة الجودة — للقراءة فقط.',
               accent: _accentFor(schema.kind),
               onChanged: () {
                 if (mounted) setState(() {});
