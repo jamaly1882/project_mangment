@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/constants/previous_prices.dart';
 import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
@@ -53,15 +54,25 @@ class _AddItemPageState extends State<AddItemPage> {
 
   String? _selectedUnit;
 
+  /// السعر السابق (1447هـ) للنوع المختار — يُقترح تلقائيًا.
+  double? _selectedPreviousPrice;
+  int? _selectedPreviousPriceCode;
+  String _selectedPreviousPriceYear = '';
+
   bool _saving = false;
 
   static const List<String> _units = [
     'م3',
     'م2',
     'م',
+    'م.ط',
     'طن',
     'كجم',
     'قطعة',
+    'عدد',
+    'كم',
+    'م3*كم',
+    'طن*كم',
     'ساعة',
     'لتر',
     'يوم',
@@ -99,6 +110,25 @@ class _AddItemPageState extends State<AddItemPage> {
         .trim();
 
     return double.tryParse(normalized);
+  }
+
+  /// الوحدة المقترحة للنوع بناءً على كوده في خلاصة أسعار 1447هـ
+  /// أو على كلمات وصف النوع (كيلومتر، متر طولي، طن …).
+  String? _unitFromPreviousType(String typeName, int? code) {
+    if (code != null) {
+      final previousType = PreviousPrices.findByCode(code);
+      if (previousType != null) return previousType.appUnit;
+    }
+
+    final name = typeName.toLowerCase();
+    if (name.contains('كيلو') || name.contains('كم')) return 'كم';
+    if (name.contains('متر طولي') || name.contains('م.ط')) return 'م';
+    if (name.contains('طن')) return 'طن';
+    if (name.contains('عدد') || name.contains('لوحة')) return 'قطعة';
+    if (name.contains('م3') || name.contains('مكعب')) return 'م3';
+    if (name.contains('م2') || name.contains('مربع')) return 'م2';
+
+    return null;
   }
 
   String _text(dynamic value, {String fallback = ''}) {
@@ -239,6 +269,9 @@ class _AddItemPageState extends State<AddItemPage> {
                   _text(data['name'], fallback: 'بدون اسم');
               _selectedTypeId = null;
               _selectedTypeName = null;
+              _selectedPreviousPrice = null;
+              _selectedPreviousPriceCode = null;
+              _selectedPreviousPriceYear = '';
               _selectedEngineerId = null;
               _selectedEngineerName = null;
               _selectedEquipmentId = null;
@@ -348,12 +381,29 @@ class _AddItemPageState extends State<AddItemPage> {
             if (value == null) return;
 
             String typeName = '';
+            double? previousPrice;
+            int? previousCode;
+            String previousYear = '';
 
             if (subcollectionDocs.isNotEmpty) {
               final doc = subcollectionDocs.firstWhere(
                 (element) => element.id == value,
               );
-              typeName = _text(doc.data()['name']);
+              final data = doc.data();
+              typeName = _text(data['name']);
+
+              // السعر السابق (1447هـ) المحفوظ على نوع البند.
+              final rawPrice = data['previousPrice'];
+              if (rawPrice is num && rawPrice > 0) {
+                previousPrice = rawPrice.toDouble();
+              }
+
+              final rawCode = data['code'] ?? data['previousPriceCode'];
+              previousCode = rawCode is num
+                  ? rawCode.toInt()
+                  : int.tryParse(rawCode?.toString() ?? '');
+
+              previousYear = _text(data['previousPriceYear']);
             } else {
               return;
             }
@@ -363,6 +413,15 @@ class _AddItemPageState extends State<AddItemPage> {
             setState(() {
               _selectedTypeId = value;
               _selectedTypeName = typeName;
+              _selectedPreviousPrice = previousPrice;
+              _selectedPreviousPriceCode = previousCode;
+              _selectedPreviousPriceYear = previousYear;
+
+              // اقتراح الوحدة من النوع تلقائيًا (م3، م2، م.ط …).
+              final suggestedUnit = _unitFromPreviousType(typeName, previousCode);
+              if (suggestedUnit != null && _units.contains(suggestedUnit)) {
+                _selectedUnit = suggestedUnit;
+              }
               _selectedEngineerId = null;
               _selectedEngineerName = null;
               _selectedEquipmentId = null;
@@ -756,6 +815,15 @@ class _AddItemPageState extends State<AddItemPage> {
         'contractQuantity': quantity,
         'unit': _selectedUnit,
 
+        // سعر سابق (1447هـ) — مرجع للتسعير ويُقترح في صفحة التكاليف.
+        'previousPrice': _selectedPreviousPrice,
+        'previousPriceCode': _selectedPreviousPriceCode,
+        'previousPriceYear':
+            _selectedPreviousPriceYear.isEmpty ? null : _selectedPreviousPriceYear,
+        if (_selectedPreviousPrice != null &&
+            _selectedPreviousPrice! > 0)
+          'previousPriceSource': previousPricesSource,
+
         'engineerId': _selectedEngineerId,
         'engineerName': _selectedEngineerName,
 
@@ -928,6 +996,39 @@ class _AddItemPageState extends State<AddItemPage> {
               ),
               AppSpacing.verticalSm,
               _buildTypeDropdown(),
+
+              if (_selectedPreviousPrice != null &&
+                  _selectedPreviousPrice! > 0) ...[
+                AppSpacing.verticalSm,
+                AppCard(
+                  color: AppColors.info.withValues(alpha: 0.08),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      AppInfoRow(
+                        label: 'سعر سابق (${_selectedPreviousPriceYear.trim().isEmpty ? previousPricesYear : _selectedPreviousPriceYear})',
+                        value: ProjectCosts.formatMoney(
+                          _selectedPreviousPrice!,
+                        ),
+                        icon: Icons.price_change_outlined,
+                      ),
+                      if (_selectedPreviousPriceCode != null) ...[
+                        AppSpacing.verticalXs,
+                        AppInfoRow(
+                          label: 'كود البند في قائمة الأسعار',
+                          value: '${_selectedPreviousPriceCode}',
+                          icon: Icons.tag_outlined,
+                        ),
+                      ],
+                      AppSpacing.verticalXs,
+                      Text(
+                        'هذا السعر مرجع فقط، ويُقترح تلقائيًا عند إدخال تكاليف البند.',
+                        style: AppTextStyles.bodySecondary,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
 
               if (_selectedTypeName != null &&
                   _selectedTypeName!.trim().isNotEmpty) ...[
