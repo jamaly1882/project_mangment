@@ -2,6 +2,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/constants/previous_prices.dart';
+import '../../core/utils/costs.dart';
+import '../../core/services/previous_prices_import.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_widgets.dart';
@@ -516,6 +519,167 @@ class _ItemBandPageState extends State<ItemBandPage> {
   }
 
   // ============================================================
+  // استيراد أسعار 1447هـ (سعر سابق)
+  // ============================================================
+
+  /// يضيف أقسام الأعمال الثلاثة (ترابية / إسفلتية / إنشائية) وأنواعها
+  /// المسعّرة من خلاصة أسعار 1447هـ، دون تكرار أو تعديل لما هو موجود.
+  Future<void> importPreviousPrices() async {
+    final bool confirmed = await AppWidgets.showConfirmDialog(
+      context: context,
+      title: 'استيراد أسعار 1447هـ',
+      message:
+          'سيتم إضافة البنود والأنواع التالية من خلاصة أسعار 1447هـ:\n\n'
+          '• ${PreviousPrices.bandsCount} بنود (أقسام أعمال).\n'
+          '• ${PreviousPrices.typesCount} نوعًا، منها '
+          '${PreviousPrices.pricedTypesCount} بسعر سابق محدد.\n\n'
+          'لا يتم حذف أو تعديل أي بند أو نوع موجود مسبقًا، '
+          'ولا يتكرر النوع إذا كان كوده موجودًا.',
+      confirmText: 'بدء الاستيراد',
+    );
+
+    if (!confirmed || !mounted) return;
+
+    // نسبة التقدم (0..1) تُحدَّث أثناء الاستيراد.
+    final progress = ValueNotifier<double>(0);
+
+    var total = PreviousPrices.bandsCount;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('جارٍ استيراد أسعار 1447هـ'),
+            content: ValueListenableBuilder<double>(
+              valueListenable: progress,
+              builder: (context, value, child) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    LinearProgressIndicator(value: value),
+                    const SizedBox(height: 12),
+                    Text(
+                      'تمت معالجة ${(value * total).round()} من $total بنود',
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+
+    PreviousPricesImportResult? result;
+    String? failure;
+
+    try {
+      result = await PreviousPricesImporter.import(
+        onProgress: (processed, count) {
+          total = count == 0 ? 1 : count;
+          progress.value = (processed / total).clamp(0.0, 1.0);
+        },
+      );
+    } catch (e) {
+      failure = e.toString();
+    } finally {
+      progress.value = 1;
+    }
+
+    if (!mounted) {
+      progress.dispose();
+      return;
+    }
+
+    // إغلاق حوار التقدم.
+    Navigator.of(context, rootNavigator: true).pop();
+    progress.dispose();
+    if (!mounted) return;
+
+    if (failure != null) {
+      AppWidgets.showError(context, 'تعذر الاستيراد:\n$failure');
+      return;
+    }
+
+    final summary = result!;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            title: const Text('نتيجة استيراد أسعار 1447هـ'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  AppInfoRow(
+                    label: 'بنود جديدة',
+                    value: '${summary.bandsCreated}',
+                    icon: Icons.category_outlined,
+                  ),
+                  AppInfoRow(
+                    label: 'بنود موجودة مسبقًا',
+                    value: '${summary.bandsExisting}',
+                    icon: Icons.check_circle_outline,
+                  ),
+                  AppInfoRow(
+                    label: 'أنواع جديدة',
+                    value: '${summary.typesCreated}',
+                    icon: Icons.list_alt_outlined,
+                  ),
+                  AppInfoRow(
+                    label: 'أنواع موجودة مسبقًا',
+                    value: '${summary.typesSkipped}',
+                    icon: Icons.remove_circle_outline,
+                  ),
+                  if (summary.failed > 0)
+                    AppInfoRow(
+                      label: 'عمليات فشلت',
+                      value: '${summary.failed}',
+                      icon: Icons.error_outline,
+                    ),
+                  if (summary.errors.isNotEmpty) ...[
+                    AppSpacing.verticalSm,
+                    Text(
+                      summary.errors.take(3).join('\n'),
+                      style: AppTextStyles.small,
+                    ),
+                  ],
+                  AppSpacing.verticalSm,
+                  Text(
+                    'افتح «الأنواع» داخل أي بند لترى الكود والوحدة وسعر 1447هـ.',
+                    style: AppTextStyles.bodySecondary,
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('تم'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted) return;
+    setState(() {});
+    AppWidgets.showSuccess(
+      context,
+      'تم الاستيراد: ${summary.typesCreated} نوعًا جديدًا.',
+    );
+  }
+
+  // ============================================================
   // الصفحة
   // ============================================================
 
@@ -542,6 +706,18 @@ class _ItemBandPageState extends State<ItemBandPage> {
           },
           icon: const Icon(
             Icons.refresh_outlined,
+          ),
+        ),
+
+        // ======================================================
+        // استيراد أسعار 1447هـ
+        // ======================================================
+
+        IconButton(
+          tooltip: 'استيراد أسعار 1447هـ',
+          onPressed: importPreviousPrices,
+          icon: const Icon(
+            Icons.cloud_download_outlined,
           ),
         ),
 
@@ -678,12 +854,23 @@ class _ItemBandPageState extends State<ItemBandPage> {
                         'إضافة البنود وتعديلها وإدارة أنواع كل بند.',
                     icon:
                         Icons.category_outlined,
-                    trailing: AppButton(
-                      text: 'إضافة بند',
-                      icon: Icons.add,
-                      onPressed: () {
-                        showItemDialog();
-                      },
+                    trailing: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        AppOutlinedButton(
+                          text: 'استيراد أسعار 1447هـ',
+                          icon: Icons.cloud_download_outlined,
+                          onPressed: importPreviousPrices,
+                        ),
+                        AppButton(
+                          text: 'إضافة بند',
+                          icon: Icons.add,
+                          onPressed: () {
+                            showItemDialog();
+                          },
+                        ),
+                      ],
                     ),
                   ),
 
@@ -770,6 +957,21 @@ class _ItemBandPageState extends State<ItemBandPage> {
                         color:
                             AppColors.danger,
                       ),
+
+                      // ================================================
+                      // أسعار 1447هـ المرجعية
+                      // ================================================
+
+                      AppStatCard(
+                        title:
+                            'أنواع بسعر 1447هـ',
+                        value:
+                            '${PreviousPrices.pricedTypesCount}',
+                        icon:
+                            Icons.price_change_outlined,
+                        color:
+                            AppColors.info,
+                      ),
                     ],
                   ),
 
@@ -828,9 +1030,39 @@ class _ItemBandPageState extends State<ItemBandPage> {
                             data['active'] !=
                                 false;
 
+                        // إن كان البند مستوردًا من خلاصة 1447هـ نعرض
+                        // عدد أنواعه ونطاق أسعاره السابقة.
+                        final String bandKey =
+                            (data['previousPriceBandKey'] ??
+                                    '')
+                                .toString();
+                        final importedBand = bandKey.isEmpty
+                            ? null
+                            : PreviousPrices.bandByKey(bandKey);
+                        String? detailText;
+
+                        if (importedBand != null) {
+                          final parts = <String>[
+                            '${importedBand.typesCount} نوعًا',
+                            '${importedBand.pricedTypesCount} بسعر $previousPricesYear',
+                          ];
+
+                          final range = importedBand.priceRange;
+
+                          if (range != null) {
+                            parts.add(
+                              'من ${ProjectCosts.formatMoney(range.$1)} '
+                              'إلى ${ProjectCosts.formatMoney(range.$2)}',
+                            );
+                          }
+
+                          detailText = parts.join(' — ');
+                        }
+
                         return _ItemCard(
                           name: name,
                           active: active,
+                          detailText: detailText,
 
                           // ==========================================
                           // الأنواع
@@ -895,6 +1127,9 @@ class _ItemCard extends StatelessWidget {
   final String name;
   final bool active;
 
+  /// سطر معلومات إضافي (مثل عدد الأنواع المستوردة ونطاق أسعار 1447هـ).
+  final String? detailText;
+
   final VoidCallback onTypes;
   final VoidCallback onEdit;
   final VoidCallback onToggle;
@@ -903,6 +1138,7 @@ class _ItemCard extends StatelessWidget {
   const _ItemCard({
     required this.name,
     required this.active,
+    this.detailText,
     required this.onTypes,
     required this.onEdit,
     required this.onToggle,
@@ -982,6 +1218,17 @@ class _ItemCard extends StatelessWidget {
                             ? AppColors.success
                             : AppColors.danger,
                       ),
+
+                      if (detailText != null) ...[
+                        const SizedBox(
+                          height: 6,
+                        ),
+                        Text(
+                          detailText!,
+                          style:
+                              AppTextStyles.bodySecondary,
+                        ),
+                      ],
                     ],
                   ),
                 ),

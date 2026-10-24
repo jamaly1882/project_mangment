@@ -8,6 +8,7 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/utils/cost_lines.dart';
 import '../../core/utils/costs.dart';
 import '../../core/widgets/app_widgets.dart';
+import '../../core/constants/previous_prices.dart';
 import '../../core/constants/roles.dart';
 import '../../core/widgets/cost_lines_editor.dart';
 
@@ -44,6 +45,11 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
 
   String? _selectedUnit;
 
+  /// سعر سابق (1447هـ) لهذا النوع — مرجع من خلاصة الأسعار.
+  double? _previousPrice;
+  String _previousPriceYear = previousPricesYear;
+  int? _previousPriceCode;
+
   /// قائمة الوحدات المعروضة (تشمل أي وحدة قديمة محفوظة في البند).
   List<String> _knownUnits = <String>[];
 
@@ -54,9 +60,14 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
     'م3',
     'م2',
     'م',
+    'م.ط',
     'طن',
     'كجم',
     'قطعة',
+    'عدد',
+    'كم',
+    'م3*كم',
+    'طن*كم',
     'ساعة',
     'لتر',
     'يوم',
@@ -258,6 +269,9 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           _knownUnits = <String>[..._units, loadedUnit];
         }
       }
+
+      // سعر سابق (1447هـ): من البند نفسه، وإلا من نوع البند المرتبط به.
+      await _loadPreviousPrice(itemData);
 
       // تكاليف البند: نقرأ من التفاصيل أولًا ثم من بيانات البند.
       final costSource = <String, dynamic>{
@@ -1049,6 +1063,207 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   }
 
   // ============================================================
+  // سعر سابق (1447هـ)
+  // ============================================================
+
+  /// يقرأ السعر السابق من البند، وإن لم يكن محفوظًا يقرأه من نوع البند
+  /// في مجموعة item_definitions (الأنواع التي أنشأها استيراد 1447هـ).
+  Future<void> _loadPreviousPrice(Map<String, dynamic> itemData) async {
+    double? price = _toDouble(itemData['previousPrice']);
+    String year = _stringValue(itemData['previousPriceYear']);
+    int? code = _toDouble(itemData['previousPriceCode'])?.toInt();
+
+    if (price == null || price <= 0) {
+      final definitionId = _stringValue(itemData['itemDefinitionId']);
+      final typeId = _stringValue(itemData['typeId']);
+
+      if (definitionId.isNotEmpty && typeId.isNotEmpty) {
+        try {
+          final typeDoc = await _firestore
+              .collection('item_definitions')
+              .doc(definitionId)
+              .collection('types')
+              .doc(typeId)
+              .get();
+
+          final data = typeDoc.data();
+
+          if (data != null) {
+            price = _toDouble(data['previousPrice']);
+            year = _stringValue(data['previousPriceYear']);
+            code = _toDouble(data['code'] ?? data['previousPriceCode'])?.toInt();
+          }
+        } catch (e) {
+          debugPrint('تعذر قراءة سعر 1447هـ لنوع البند: $e');
+        }
+      }
+    }
+
+    if (price != null && price <= 0) price = null;
+
+    // آخر محاولة: كود البند نفسه في خلاصة الأسعار.
+    if (price == null) {
+      final itemCode = int.tryParse(_stringValue(itemData['code']));
+      final fromList = itemCode == null
+          ? null
+          : PreviousPrices.findByCode(itemCode);
+      if (fromList != null && fromList.hasPrice) {
+        price = fromList.price;
+        code ??= fromList.code;
+      }
+    }
+
+    _previousPrice = price;
+    _previousPriceYear = year.trim().isEmpty ? previousPricesYear : year;
+    _previousPriceCode = code;
+  }
+
+  /// عدد الأسطر التي لا تحتوي سعر وحدة بعد.
+  int get _linesMissingUnitPrice {
+    var count = 0;
+
+    for (final kind in const <CostLineKind>[
+      CostLineKind.material,
+      CostLineKind.equipment,
+      CostLineKind.labor,
+    ]) {
+      final lines = _costEditors[kind]?.lines ?? const <Map<String, dynamic>>[];
+      for (final line in lines) {
+        if (kind == CostLineKind.labor) {
+          final basis = (line['wageBasis'] ?? '').toString().trim();
+          if (basis != 'للوحدة') continue;
+
+          final wage = _toDouble(line['wage']) ?? 0;
+          if (wage <= 0) count++;
+          continue;
+        }
+
+        final value = _toDouble(line['unitPrice']) ?? 0;
+        if (value <= 0) count++;
+      }
+    }
+
+    return count;
+  }
+
+  /// يضع السعر السابق في خانة سعر الوحدة للأسطر التي لم تُسعَّر بعد.
+  ///
+  /// لا يستبدل أي سعر أدخله المستخدم، ويُبقي التكلفة قابلة للتعديل.
+  void _applyPreviousPriceToLines() {
+    final price = _previousPrice;
+    if (price == null || price <= 0) return;
+
+    final text = ProjectCosts.toEditText(price);
+    var applied = 0;
+
+    for (final kind in const <CostLineKind>[
+      CostLineKind.material,
+      CostLineKind.equipment,
+      CostLineKind.labor,
+    ]) {
+      final editor = _costEditors[kind];
+      if (editor == null) continue;
+
+      final lines = editor.lines;
+
+      for (var index = 0; index < lines.length; index++) {
+        if (kind == CostLineKind.labor) {
+          // الأجرة ليست سعر وحدة إلا عندما يكون أساس الأجرة «للوحدة».
+          final basis = (lines[index]['wageBasis'] ?? '').toString().trim();
+          if (basis != 'للوحدة') continue;
+
+          final current = _toDouble(lines[index]['wage']) ?? 0;
+          if (current > 0) continue;
+
+          editor.setText(index, 'wage', text);
+          applied++;
+          continue;
+        }
+
+        final current = _toDouble(lines[index]['unitPrice']) ?? 0;
+        if (current > 0) continue;
+
+        editor.setText(index, 'unitPrice', text);
+        applied++;
+      }
+    }
+
+    if (!mounted) return;
+
+    setState(() {});
+
+    if (applied == 0) {
+      AppWidgets.showWarning(
+        context,
+        'كل الأسطر مسعّرة بالفعل. عدّل السعر يدويًا من السطر نفسه.',
+      );
+      return;
+    }
+
+    AppWidgets.showSuccess(
+      context,
+      'تم تطبيق السعر السابق على $applied سطرًا.',
+    );
+  }
+
+  /// بطاقة السعر السابق (1447هـ) مع زر التطبيق على الأسطر.
+  Widget _buildPreviousPriceCard() {
+    final price = _previousPrice;
+
+    if (price == null || price <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    final missing = _linesMissingUnitPrice;
+
+    return AppCard(
+      color: AppColors.info.withValues(alpha: 0.07),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AppInfoRow(
+            label: 'سعر سابق ($_previousPriceYear)',
+            value: ProjectCosts.formatMoney(price),
+            icon: Icons.price_change_outlined,
+          ),
+          if (_previousPriceCode != null) ...[
+            AppSpacing.verticalXs,
+            AppInfoRow(
+              label: 'كود البند في قائمة الأسعار',
+              value: '$_previousPriceCode',
+              icon: Icons.tag_outlined,
+            ),
+          ],
+          AppSpacing.verticalXs,
+          Text(
+            'سعر مرجعي للوحدة من خلاصة أسعار 1447هـ، '
+            'لا يُحتسب في التكلفة حتى يُطبَّق على أسطر التكلفة.',
+            style: AppTextStyles.small,
+          ),
+          AppSpacing.verticalSm,
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  missing > 0
+                      ? '$missing سطرًا بلا سعر وحدة'
+                      : 'كل الأسطر مسعّرة',
+                  style: AppTextStyles.bodySecondary,
+                ),
+              ),
+              AppOutlinedButton(
+                text: 'تطبيق السعر',
+                icon: Icons.playlist_add_check_outlined,
+                onPressed: _applyPreviousPriceToLines,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
   // تكاليف البند
   // ============================================================
 
@@ -1120,7 +1335,10 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
             ],
           ),
         ),
-        AppSpacing.verticalMd,
+        if (_previousPrice != null && _previousPrice! > 0) ...[
+          _buildPreviousPriceCard(),
+          AppSpacing.verticalMd,
+        ],
         for (final schema in CostLineSchema.ordered) ...[
           CostLinesEditor(
             schema: schema,

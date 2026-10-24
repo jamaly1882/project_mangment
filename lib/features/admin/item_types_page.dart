@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/constants/previous_prices.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/costs.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_widgets.dart';
 
@@ -67,9 +69,35 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
   Future<void> showTypeDialog({
     DocumentSnapshot<Map<String, dynamic>>? doc,
   }) async {
+    final data = doc?.data();
+
     final controller = TextEditingController(
-      text: doc?.data()?['name']?.toString() ?? '',
+      text: data?['name']?.toString() ?? '',
     );
+
+    // كود البند في خلاصة أسعار 1447هـ (اختياري للأنواع القديمة).
+    final codeController = TextEditingController(
+      text: (data?['code'] ?? data?['previousPriceCode'])
+              ?.toString() ??
+          '',
+    );
+
+    // سعر الوحدة السابق (1447هـ) — «سعر سابق».
+    final dynamic existingPrice = data?['previousPrice'];
+    final previousPriceController = TextEditingController(
+      text: existingPrice is num
+          ? ProjectCosts.toEditText(existingPrice.toDouble())
+          : '',
+    );
+
+    String? selectedUnit = (data?['unit'] ?? '').toString().trim().isEmpty
+        ? null
+        : data!['unit'].toString().trim();
+
+    final units = <String>{
+      ...previousTypeUnits,
+      if (selectedUnit != null) selectedUnit,
+    }.toList();
 
     final formKey = GlobalKey<FormState>();
 
@@ -86,26 +114,106 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
               style: AppTextStyles.sectionTitle,
             ),
             content: SizedBox(
-              width: 450,
-              child: Form(
-                key: formKey,
-                child: TextFormField(
-                  controller: controller,
-                  autofocus: true,
-                  decoration: const InputDecoration(
-                    labelText: 'اسم النوع',
-                    hintText: 'مثال: حفر ترابي',
-                    prefixIcon: Icon(
-                      Icons.list_alt_outlined,
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'أدخل اسم النوع';
-                    }
+              width: 500,
+              child: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextFormField(
+                        controller: controller,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          labelText: 'اسم النوع',
+                          hintText: 'مثال: حفر ترابي',
+                          prefixIcon: Icon(
+                            Icons.list_alt_outlined,
+                          ),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'أدخل اسم النوع';
+                          }
 
-                    return null;
-                  },
+                          return null;
+                        },
+                      ),
+                      AppSpacing.verticalSm,
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: TextFormField(
+                              controller: codeController,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'كود البند (1447هـ)',
+                                hintText: 'مثال: 12',
+                                prefixIcon: Icon(Icons.tag_outlined),
+                              ),
+                              validator: (value) {
+                                final text = (value ?? '').trim();
+                                if (text.isEmpty) return null;
+                                if (int.tryParse(text) == null) {
+                                  return 'الكود يجب أن يكون رقمًا';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              initialValue: selectedUnit,
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                labelText: 'الوحدة',
+                                prefixIcon: Icon(Icons.straighten_outlined),
+                              ),
+                              items: units
+                                  .map(
+                                    (unit) => DropdownMenuItem<String>(
+                                      value: unit,
+                                      child: Text(unit),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (value) {
+                                selectedUnit = value;
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      AppSpacing.verticalSm,
+                      TextFormField(
+                        controller: previousPriceController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'سعر سابق (${previousPricesYear})',
+                          hintText: 'سعر الوحدة من خلاصة الأسعار',
+                          prefixIcon: Icon(Icons.price_change_outlined),
+                          suffixText: 'ريال',
+                          helperText: 'يُقترح تلقائيًا عند تسعير البند',
+                        ),
+                        validator: (value) {
+                          final text = (value ?? '').trim();
+                          if (text.isEmpty) return null;
+                          final parsed = double.tryParse(
+                            text.replaceAll('٫', '.').replaceAll(',', '.'),
+                          );
+                          if (parsed == null || parsed < 0) {
+                            return 'أدخل سعرًا صحيحًا';
+                          }
+                          return null;
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -126,6 +234,15 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
                   }
 
                   final String name = controller.text.trim();
+                  final String codeText = codeController.text.trim();
+                  final int? code =
+                      codeText.isEmpty ? null : int.tryParse(codeText);
+                  final String priceText = previousPriceController.text
+                      .trim()
+                      .replaceAll('٫', '.')
+                      .replaceAll(',', '.');
+                  final double? previousPrice =
+                      priceText.isEmpty ? null : double.tryParse(priceText);
 
                   try {
                     // ==================================================
@@ -156,13 +273,48 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
                       return;
                     }
 
+                    // منع تكرار كود البند داخل البند نفسه.
+                    if (code != null) {
+                      final codeSnapshot = await typesReference
+                          .where('code', isEqualTo: code)
+                          .get();
+
+                      final bool codeTaken = codeSnapshot.docs.any(
+                        (item) => item.id != doc?.id,
+                      );
+
+                      if (codeTaken) {
+                        if (!mounted) {
+                          return;
+                        }
+
+                        AppWidgets.showWarning(
+                          context,
+                          'كود البند $code مستخدم لنوع آخر في هذا البند',
+                        );
+
+                        return;
+                      }
+                    }
+
                     // ==================================================
                     // إضافة النوع
                     // ==================================================
 
+                    final priceFields = <String, dynamic>{
+                      'code': code,
+                      'previousPriceCode': code,
+                      'unit': selectedUnit,
+                      'previousPrice': previousPrice,
+                      'previousPriceYear': previousPricesYear,
+                      if (code != null && previousPrice != null)
+                        'previousPriceSource': previousPricesSource,
+                    };
+
                     if (!isEditing) {
                       await typesReference.add({
                         'name': name,
+                        ...priceFields,
                         'active': true,
                         'createdAt': FieldValue.serverTimestamp(),
                         'updatedAt': FieldValue.serverTimestamp(),
@@ -176,6 +328,7 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
                     else {
                       await doc.reference.update({
                         'name': name,
+                        ...priceFields,
                         'updatedAt': FieldValue.serverTimestamp(),
                       });
                     }
@@ -213,6 +366,8 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
     );
 
     controller.dispose();
+    codeController.dispose();
+    previousPriceController.dispose();
 
     // ==========================================================
     // رسالة النجاح
@@ -366,8 +521,10 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
 
         final String name =
             data['name']?.toString().toLowerCase() ?? '';
+        final String code =
+            (data['code'] ?? data['previousPriceCode'] ?? '').toString();
 
-        return name.contains(search);
+        return name.contains(search) || code.contains(search);
       },
     ).toList();
   }
@@ -398,6 +555,19 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
           (doc) => doc.data()['active'] == false,
         )
         .length;
+  }
+
+  // ============================================================
+  // عدد الأنواع التي لها سعر سابق (1447هـ)
+  // ============================================================
+
+  int countWithPreviousPrice(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    return docs.where((doc) {
+      final price = doc.data()['previousPrice'];
+      return price is num && price > 0;
+    }).length;
   }
 
   // ============================================================
@@ -661,6 +831,17 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
                         icon: Icons.cancel_outlined,
                         color: AppColors.danger,
                       ),
+
+                      // ================================================
+                      // أنواع لها سعر سابق (1447هـ)
+                      // ================================================
+
+                      AppStatCard(
+                        title: 'أنواع لها سعر سابق',
+                        value: '${countWithPreviousPrice(allDocs)}',
+                        icon: Icons.price_change_outlined,
+                        color: AppColors.info,
+                      ),
                     ],
                   ),
 
@@ -707,9 +888,25 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
 
                         final bool active = data['active'] != false;
 
+                        final rawCode =
+                            data['code'] ?? data['previousPriceCode'];
+                        final int? code = rawCode is num
+                            ? rawCode.toInt()
+                            : int.tryParse(rawCode?.toString() ?? '');
+
+                        final String unit =
+                            (data['unit'] ?? '').toString().trim();
+
+                        final rawPrice = data['previousPrice'];
+                        final double? previousPrice =
+                            rawPrice is num ? rawPrice.toDouble() : null;
+
                         return _TypeCard(
                           name: name,
                           active: active,
+                          code: code,
+                          unit: unit,
+                          previousPrice: previousPrice,
                           onEdit: () {
                             showTypeDialog(
                               doc: doc,
@@ -744,6 +941,15 @@ class _TypeCard extends StatelessWidget {
   final String name;
   final bool active;
 
+  /// كود البند في خلاصة أسعار 1447هـ (إن وُجد).
+  final int? code;
+
+  /// وحدة البند (م3، م2، م.ط …).
+  final String unit;
+
+  /// سعر الوحدة السابق لعام 1447هـ.
+  final double? previousPrice;
+
   final VoidCallback onEdit;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
@@ -751,6 +957,9 @@ class _TypeCard extends StatelessWidget {
   const _TypeCard({
     required this.name,
     required this.active,
+    this.code,
+    this.unit = '',
+    this.previousPrice,
     required this.onEdit,
     required this.onToggle,
     required this.onDelete,
@@ -801,17 +1010,53 @@ class _TypeCard extends StatelessWidget {
                       const SizedBox(
                         height: 7,
                       ),
-                      AppStatusBadge(
-                        text: active ? 'نشط' : 'معطل',
-                        color: active
-                            ? AppColors.success
-                            : AppColors.danger,
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          AppStatusBadge(
+                            text: active ? 'نشط' : 'معطل',
+                            color: active
+                                ? AppColors.success
+                                : AppColors.danger,
+                          ),
+                          if (code != null)
+                            AppStatusBadge(
+                              text: 'كود $code',
+                              color: AppColors.info,
+                            ),
+                          if (unit.isNotEmpty)
+                            AppStatusBadge(
+                              text: unit,
+                              color: AppColors.primary,
+                            ),
+                        ],
                       ),
                     ],
                   ),
                 ),
               ],
             ),
+
+            // ========================================================
+            // سعر سابق (1447هـ)
+            // ========================================================
+
+            if (previousPrice != null && previousPrice! > 0) ...[
+              AppSpacing.verticalSm,
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.info.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: AppInfoRow(
+                  label: 'سعر سابق (${previousPricesYear})',
+                  value: '${ProjectCosts.formatMoney(previousPrice!)}',
+                  icon: Icons.price_change_outlined,
+                ),
+              ),
+            ],
 
             AppSpacing.verticalMd,
 
