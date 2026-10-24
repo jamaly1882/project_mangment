@@ -2,7 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/constants/unit_analysis_prices.dart';
 import '../../core/services/cost_prices.dart';
+import '../../core/services/unit_analysis_import.dart';
 import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
@@ -354,12 +356,25 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
         unit: (item['unit'] ?? '').toString(),
       );
 
+      // بعد أي تحميل تُعاد بناء متحكمات الأسعار لتظهر القيم المحفوظة.
+      final stale = List<TextEditingController>.from(
+        _priceControllers.values,
+      );
+      _priceControllers.clear();
+      _pendingChanges.clear();
+
       if (!mounted) return;
       setState(() {
         _item = item;
         _planned = planned;
         _actual = actual;
         _loading = false;
+      });
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        for (final controller in stale) {
+          controller.dispose();
+        }
       });
 
       if (widget.openImportOnLoad) {
@@ -524,6 +539,68 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
   // استيراد جدول التحليل
   // ============================================================
 
+  /// استيراد أسعار التحليل المضمّنة بضغطة واحدة.
+  Future<void> _importUnitAnalysis() async {
+    if (_saving) return;
+
+    final user = _auth.currentUser;
+    if (user == null) {
+      AppWidgets.showError(context, 'انتهت جلسة تسجيل الدخول.');
+      return;
+    }
+
+    final confirmed = await AppWidgets.showConfirmDialog(
+      context: context,
+      title: 'استيراد أسعار التحليل',
+      message: 'سيُطبَّق جدول تحليل الوحدة ($unitAnalysisYear) على هذا البند: '
+          '${unitAnalysisLaborCount} مهنة، '
+          '${unitAnalysisEquipmentCount} معدة، '
+          '${unitAnalysisFuelCount} وقود، '
+          '${unitAnalysisMaterialsCount} مادة.\n\n'
+          'السطر الموجود يُحدَّث سعره، وغير الموجود يُضاف بلا كميات '
+          'حتى يدخلها المشرف. هل تريد المتابعة؟',
+      confirmText: 'استيراد',
+    );
+
+    if (!confirmed) return;
+
+    setState(() => _saving = true);
+
+    try {
+      final result = await UnitAnalysisImporter.importToItem(
+        itemId: widget.itemId,
+        projectId: widget.projectId,
+        userId: user.uid,
+      );
+
+      ProjectCostTotals? totals;
+      try {
+        totals = await ProjectCostSync.applyTotals(widget.projectId);
+      } catch (e) {
+        debugPrint('تعذرت مزامنة تكاليف المشروع: $e');
+      }
+
+      await _load();
+
+      if (!mounted) return;
+      setState(() => _saving = false);
+
+      AppWidgets.showSuccess(
+        context,
+        <String>[
+          result.message,
+          if (totals != null)
+            'إجمالي تكلفة المشروع: '
+                '${ProjectCosts.formatMoney(totals.displayTotal)}',
+        ].join('\n'),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      AppWidgets.showError(context, 'تعذر استيراد أسعار التحليل:\n$e');
+    }
+  }
+
   Future<void> _openImport() async {
     final controller = TextEditingController();
     final result = await showDialog<List<PriceEntry>>(
@@ -682,7 +759,14 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
       showBackButton: true,
       actions: [
         IconButton(
-          tooltip: 'استيراد جدول الأسعار',
+          tooltip: 'استيراد أسعار التحليل',
+          onPressed: _loading || _error != null || _saving
+              ? null
+              : _importUnitAnalysis,
+          icon: const Icon(Icons.download_for_offline_outlined),
+        ),
+        IconButton(
+          tooltip: 'لصق جدول أسعار',
           onPressed: _loading || _error != null ? null : _openImport,
           icon: const Icon(Icons.upload_file_outlined),
         ),
@@ -746,11 +830,21 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
                         icon: Icons.check_circle_outline,
                       ),
                       AppSpacing.verticalMd,
+                      AppButton(
+                        label: _saving
+                            ? 'جارٍ الاستيراد...'
+                            : 'استيراد أسعار التحليل ($unitAnalysisRowCount سطرًا)',
+                        icon: Icons.download_for_offline_outlined,
+                        expanded: true,
+                        loading: _saving,
+                        onPressed: _saving ? null : _importUnitAnalysis,
+                      ),
+                      AppSpacing.verticalSm,
                       AppOutlinedButton(
-                        label: 'استيراد جدول الأسعار (لصق)',
+                        label: 'لصق جدول مختلف (متقدّم)',
                         icon: Icons.upload_file_outlined,
                         expanded: true,
-                        onPressed: _openImport,
+                        onPressed: _saving ? null : _openImport,
                       ),
                       AppSpacing.verticalMd,
                       _buildSection(CostLineKind.material, AppColors.primary),
