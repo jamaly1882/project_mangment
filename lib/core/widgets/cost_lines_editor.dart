@@ -447,6 +447,7 @@ class CostLinesEditor extends StatefulWidget {
     this.onChanged,
     this.trailingNote,
     this.hiddenKeys = const <String>{},
+    this.readOnlyKeys = const <String>{},
   });
 
   final CostLineSchema schema;
@@ -454,6 +455,9 @@ class CostLinesEditor extends StatefulWidget {
   /// حقول تُخفى من الإدخال مع بقاء قيمها محفوظة عند الحفظ.
   /// تُستخدم لإخفاء الأسعار عن المشرف؛ السعر يحدّده مدير الجودة فقط.
   final Set<String> hiddenKeys;
+
+  /// حقول تظهر للقراءة فقط: قيمتها منقولة من إدارة الجودة ولا تُعدَّل هنا.
+  final Set<String> readOnlyKeys;
   final CostLinesEditorController controller;
   final List<CostPickerOption> options;
   final Color? accent;
@@ -750,6 +754,8 @@ class _CostLinesEditorState extends State<CostLinesEditor> {
     int index,
     CostLineField field,
   ) {
+    final locked = widget.readOnlyKeys.contains(field.key);
+
     if (field.kind == CostFieldKind.choice) {
       final current = controller.textOf(index, field.key);
       final suggested = schema.kind == CostLineKind.material && field.key == 'unit'
@@ -778,6 +784,9 @@ class _CostLinesEditorState extends State<CostLinesEditor> {
         label: field.label,
         hint: field.hint ?? '0',
         suffixText: field.suffix,
+        // سعر منقول من إدارة الجودة: يُقرأ ولا يُعدَّل، ويُحفظ كما هو.
+        readOnly: locked,
+        prefixIcon: locked ? Icons.lock_outline : null,
         onChanged: (_) {},
       );
     }
@@ -786,6 +795,7 @@ class _CostLinesEditorState extends State<CostLinesEditor> {
       controller: controller.textController(index, field.key),
       label: field.label,
       hint: field.hint,
+      readOnly: locked,
       onChanged: (value) {
         if (schema.kind == CostLineKind.material && field.key == 'materialName') {
           controller.setText(index, 'unit', MaterialUnits.forName(value).first);
