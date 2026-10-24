@@ -147,6 +147,71 @@ void main() {
       expect(controller.total, 0);
     });
 
+
+    testWidgets('البحث يُبقي الأسطر المطابقة فقط', (tester) async {
+      final schema = CostLineSchema.of(CostLineKind.material);
+      final controller = CostLinesEditorController(schema);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: CostTableEditor(
+                schema: schema,
+                controller: controller,
+                priceEditable: true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // عدّاد أسطر القسم ظاهر في العنوان.
+      expect(find.textContaining('42 سطرًا'), findsOneWidget);
+      expect(find.text('أسمنت'), findsOneWidget);
+
+      final search = find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            (widget.decoration?.hintText ?? '').contains('ابحث'),
+      );
+
+      await tester.enterText(search, 'حديد');
+      await tester.pumpAndSettle();
+
+      expect(find.text('أسمنت'), findsNothing);
+      expect(find.text('حديد G40'), findsOneWidget);
+    });
+
+    testWidgets('زر الإضافة على السطر يعلّمه ويُظهر حقول الكمية',
+        (tester) async {
+      final schema = CostLineSchema.of(CostLineKind.material);
+      final controller = CostLinesEditorController(schema);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: CostTableEditor(
+                schema: schema,
+                controller: controller,
+                priceEditable: false,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.add_circle_outline).first);
+      await tester.pumpAndSettle();
+
+      expect(controller.count, 1);
+      expect(controller.hasQuantity(0), isTrue);
+    });
     testWidgets('السعر مقفل للمشرف ولا يظهر كحقل إدخال', (tester) async {
       final schema = CostLineSchema.of(CostLineKind.fuel);
       final controller = CostLinesEditorController(schema);

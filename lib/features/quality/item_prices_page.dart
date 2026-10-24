@@ -11,6 +11,8 @@ import '../../core/theme/app_text_styles.dart';
 import '../../core/utils/cost_lines.dart';
 import '../../core/utils/costs.dart';
 import '../../core/widgets/app_widgets.dart';
+import '../../core/widgets/cost_lines_editor.dart';
+import '../../core/widgets/cost_table_editor.dart';
 
 import 'price_import_dialog.dart';
 
@@ -266,40 +268,82 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
   /// أسطر جديدة أضافها الاستيراد (نوع + فهرس في المخطط).
   final List<PriceEntry> _addedEntries = <PriceEntry>[];
 
-  /// السعرات التي غيّرها المدير (للتوثيق في سجل الأسعار).
-  final List<PriceChange> _pendingChanges = <PriceChange>[];
+  /// جداول الأسعار: متحكم لكل قسم (نفس جدول صفحة المشرف).
+  final Map<CostLineKind, CostLinesEditorController> _priceEditors =
+      <CostLineKind, CostLinesEditorController>{
+    for (final schema in CostLineSchema.ordered)
+      schema.kind: CostLinesEditorController(schema),
+  };
 
-  /// متحكمات حقول الأسعار: مفتاحها نوع القسم + هوية السطر.
-  final Map<String, TextEditingController> _priceControllers =
-      <String, TextEditingController>{};
+  /// الأسعار وقت التحميل: لمقارنة ما غيّره المدير وتوثيقه.
+  final Map<String, double> _originalPrices = <String, double>{};
 
   @override
   void dispose() {
-    for (final controller in _priceControllers.values) {
-      controller.dispose();
+    for (final editor in _priceEditors.values) {
+      editor.dispose();
     }
     super.dispose();
   }
 
-  String _controllerKey(CostLineKind kind, Map<String, dynamic> line) =>
-      '${kind.name}:${identityHashCode(line)}';
+  /// يجمع الأسطر من الجداول إلى [planned].
+  void _syncPlannedFromEditors() {
+    _planned = CostLines(<CostLineKind, List<Map<String, dynamic>>>{
+      for (final schema in CostLineSchema.ordered)
+        schema.kind: _priceEditors[schema.kind]!.lines,
+    });
+  }
 
-  TextEditingController _priceControllerOf(
-    CostLineKind kind,
-    Map<String, dynamic> line,
-  ) {
-    final key = _controllerKey(kind, line);
-    final existing = _priceControllers[key];
-    if (existing != null) return existing;
+  /// يعيد تحميل الجداول من [planned] (بعد الاستيراد أو اللصق).
+  void _reloadEditors() {
+    for (final schema in CostLineSchema.ordered) {
+      _priceEditors[schema.kind]!.applyLines(_planned[schema.kind]);
+    }
+  }
 
-    final created = TextEditingController(
-      text: ProjectCosts.toEditText(
-        CostPrices.priceOf(kind, line),
-      ),
-    );
+  String _priceKeyOf(CostLineKind kind, String label) =>
+      '${kind.name}|${normalizedLineName(label)}';
 
-    _priceControllers[key] = created;
-    return created;
+  void _captureOriginalPrices() {
+    _originalPrices.clear();
+
+    for (final schema in CostLineSchema.ordered) {
+      for (final line in _planned[schema.kind]) {
+        final label = CostLineSchema.text(line, schema.titleKey);
+        if (label.trim().isEmpty) continue;
+
+        _originalPrices[_priceKeyOf(schema.kind, label)] =
+            CostLineSchema.number(line, schema.priceKey);
+      }
+    }
+  }
+
+  /// الأسعار التي تغيّرت عن وقت التحميل (للتوثيق في السجل).
+  List<PriceChange> _pendingPriceChanges() {
+    final changes = <PriceChange>[];
+
+    for (final schema in CostLineSchema.ordered) {
+      for (final line in _planned[schema.kind]) {
+        final label = CostLineSchema.text(line, schema.titleKey);
+        if (label.trim().isEmpty) continue;
+
+        final old = _originalPrices[_priceKeyOf(schema.kind, label)] ?? 0;
+
+        final now = CostLineSchema.number(line, schema.priceKey);
+        if ((old - now).abs() < 0.0001) continue;
+
+        changes.add(
+          PriceChange(
+            kind: schema.kind,
+            label: label,
+            oldPrice: old,
+            newPrice: now,
+          ),
+        );
+      }
+    }
+
+    return changes;
   }
 
   double get _contractQuantity {
@@ -356,13 +400,7 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
         unit: (item['unit'] ?? '').toString(),
       );
 
-      // بعد أي تحميل تُعاد بناء متحكمات الأسعار لتظهر القيم المحفوظة.
-      final stale = List<TextEditingController>.from(
-        _priceControllers.values,
-      );
-      _priceControllers.clear();
-      _pendingChanges.clear();
-
+      // بعد أي تحميل تُعاد تعبئة الجداول لتظهر القيم المحفوظة.
       if (!mounted) return;
       setState(() {
         _item = item;
@@ -371,11 +409,8 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
         _loading = false;
       });
 
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        for (final controller in stale) {
-          controller.dispose();
-        }
-      });
+      _reloadEditors();
+      _captureOriginalPrices();
 
       if (widget.openImportOnLoad) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -424,7 +459,6 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
             );
 
             changes.add(change);
-            _pendingChanges.add(change);
           }
         }
       }
@@ -438,18 +472,8 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
       }
     }
 
-    // نُعيد بناء متحكمات الأسعار لتظهر القيم المطبقة؛
-    // التخلص من القديمة بعد الإطار حتى لا تُستخدم بعد dispose.
-    final stale = List<TextEditingController>.from(
-      _priceControllers.values,
-    );
-    _priceControllers.clear();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      for (final controller in stale) {
-        controller.dispose();
-      }
-    });
+    // نُعيد تعبئة الجداول لتظهر الأسعار المطبقة.
+    _reloadEditors();
 
     if (!mounted) return;
 
@@ -480,9 +504,19 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
       return;
     }
 
-    final changes = List<PriceChange>.from(_pendingChanges);
+    // الأسعار من الجداول هي المصدر الأخير.
+    _syncPlannedFromEditors();
 
-    if (_planned.isEmpty && _actual.isEmpty) {
+    final planned = _planned;
+    final changes = _pendingPriceChanges();
+
+    // المشرف يقرأ الأسطر الفعلية: ننسخ إليها الأسعار ونضيف ما ينقصها.
+    final actual = CostPrices.mirrorPlannedPrices(
+      planned: planned,
+      actual: _actual,
+    );
+
+    if (planned.isEmpty && actual.isEmpty) {
       AppWidgets.showWarning(context, 'لا توجد أسطر تكلفة في هذا البند.');
       return;
     }
@@ -493,8 +527,8 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
       await CostPrices.save(
         itemId: widget.itemId,
         projectId: widget.projectId,
-        planned: _planned,
-        actual: _actual,
+        planned: planned,
+        actual: actual,
         changes: changes,
         userId: user.uid,
         itemName: widget.itemName.isNotEmpty
@@ -512,7 +546,13 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
 
       if (!mounted) return;
 
-      setState(() => _saving = false);
+      setState(() {
+        _saving = false;
+        _planned = planned;
+        _actual = actual;
+      });
+
+      _captureOriginalPrices();
 
       AppWidgets.showSuccess(
         context,
@@ -624,127 +664,20 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
   double get _actualTotal => _actual.grandTotal;
 
   Widget _buildSection(CostLineKind kind, Color accent) {
-    final schema = CostLineSchema.of(kind);
-    final lines = _planned[kind];
-
-    return AppCard(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Icon(schema.icon, color: accent, size: 20),
-              AppSpacing.horizontalSm,
-              Expanded(
-                child: Text(
-                  '${schema.title} (${lines.length})',
-                  style: AppTextStyles.cardTitle,
-                ),
-              ),
-              Text(
-                ProjectCosts.formatMoney(_planned.totalOf(kind)),
-                style: AppTextStyles.bodySecondary,
-              ),
-            ],
-          ),
-          AppSpacing.verticalSm,
-          Text(
-            '${CostPrices.priceLabelOf(kind)} لكل سطر. '
-            'المشرف لا يرى هذه الأسعار.',
-            style: AppTextStyles.small,
-          ),
-          AppSpacing.verticalSm,
-          if (lines.isEmpty)
-            Text(
-              'لا توجد أسطر ${schema.rowTitle} في مخطط هذا البند.',
-              style: AppTextStyles.small,
-            ),
-          for (var index = 0; index < lines.length; index++)
-            _buildLineRow(schema, lines[index], accent),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLineRow(
-    CostLineSchema schema,
-    Map<String, dynamic> line,
-    Color accent,
-  ) {
-    final priceKey = CostPrices.priceKeyOf(schema.kind);
-    final controller = _priceControllerOf(schema.kind, line);
-
-    final label = CostLineSchema.text(line, schema.titleKey);
-    final excluded = line[CostLineSchema.excludedKey] == true;
-    final cost = schema.costOf(line);
-
-    return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            flex: 4,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label.isEmpty ? schema.describe(line) : label,
-                  style: AppTextStyles.body,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                AppSpacing.verticalXs,
-                Text(
-                  excluded
-                      ? 'سطر مستبعد — لا يدخل في الإجمالي'
-                      : 'التكلفة: ${ProjectCosts.formatMoney(cost)}',
-                  style: AppTextStyles.small.copyWith(
-                    color: excluded ? AppColors.warning : null,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          AppSpacing.horizontalSm,
-          Expanded(
-            flex: 3,
-            child: AppNumberField(
-              controller: controller,
-              label: CostPrices.priceLabelOf(schema.kind),
-              suffixText: ProjectCosts.currency,
-              enabled: !excluded,
-              onChanged: (value) {
-                final price = ProjectCosts.parseNumber(value);
-                final oldPrice = CostPrices.priceOf(schema.kind, line);
-
-                if ((oldPrice - price).abs() < 0.0001) return;
-
-                line[priceKey] = price;
-                line[CostLineSchema.manualKey] = false;
-                line[CostLineSchema.costKey] = schema.computedCost(line);
-
-                _pendingChanges.add(
-                  PriceChange(
-                    kind: schema.kind,
-                    label: label,
-                    oldPrice: oldPrice,
-                    newPrice: price,
-                  ),
-                );
-
-                setState(() {});
-              },
-            ),
-          ),
-        ],
-      ),
+    return CostTableEditor(
+      schema: CostLineSchema.of(kind),
+      controller: _priceEditors[kind]!,
+      accent: accent,
+      // مدير الجودة يعدّل السعر من الجدول مباشرة، والتعليم يعني
+      // «السطر مُدرج» بلا كميات (الكميات يدخلها المشرف).
+      priceEditable: true,
+      quantitySelection: false,
+      trailingNote: 'علّم ✓ على الأسطر التي يستخدمها البند، وعدّل '
+          '${CostPrices.priceLabelOf(kind)}. إلغاء ✓ يصفّر الكمية فقط.',
+      onChanged: () {
+        if (!mounted) return;
+        setState(_syncPlannedFromEditors);
+      },
     );
   }
 

@@ -409,6 +409,63 @@ class CostPrices {
     await batch.commit();
   }
 
+  /// ينسخ أسعار المخطط إلى الأسطر الفعلية ويضيف ما ينقصها **بلا كميات**.
+  ///
+  /// يُستخدم من صفحة أسعار مدير الجودة: هي تعدّل المخطط، والمشرف يقرأ
+  /// الأسطر الفعلية، فبدون هذه المزامنة لا يرى السعر في تكليفه.
+  static CostLines mirrorPlannedPrices({
+    required CostLines planned,
+    required CostLines actual,
+  }) {
+    final result = <CostLineKind, List<Map<String, dynamic>>>{};
+
+    for (final schema in CostLineSchema.ordered) {
+      final kind = schema.kind;
+
+      final target = <Map<String, dynamic>>[
+        for (final line in actual[kind]) Map<String, dynamic>.from(line),
+      ];
+
+      for (final line in planned[kind]) {
+        final label = CostLineSchema.text(line, schema.titleKey);
+        if (label.trim().isEmpty) continue;
+
+        final price = CostLineSchema.number(line, schema.priceKey);
+
+        final index = target.indexWhere(
+          (item) => sameLineName(
+            CostLineSchema.text(item, schema.titleKey),
+            label,
+          ),
+        );
+
+        if (index < 0) {
+          final added = Map<String, dynamic>.from(line);
+
+          // السطر الجديد ينتظر المشرف: بلا كميات وتكلفة صفر.
+          for (final key in schema.quantityKeys) {
+            added[key] = 0;
+          }
+
+          added[CostLineSchema.costKey] = 0.0;
+          added[CostLineSchema.manualKey] = false;
+
+          target.add(added);
+          continue;
+        }
+
+        target[index][schema.priceKey] = price;
+        target[index][CostLineSchema.manualKey] = false;
+        target[index][CostLineSchema.costKey] =
+            schema.computedCost(target[index]);
+      }
+
+      result[kind] = target;
+    }
+
+    return CostLines(result);
+  }
+
   /// قراءة السعر الحالي لسطر.
   static double priceOf(CostLineKind kind, Map<String, dynamic> line) =>
       CostLineSchema.number(line, priceKeyOf(kind));
