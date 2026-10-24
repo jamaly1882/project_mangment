@@ -1,6 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/constants/unit_analysis_prices.dart';
+import '../../core/services/project_cost_sync.dart';
+import '../../core/services/unit_analysis_import.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/utils/costs.dart';
@@ -36,9 +40,11 @@ class ProjectItemsPricesPage extends StatefulWidget {
 
 class _ProjectItemsPricesPageState extends State<ProjectItemsPricesPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
   final TextEditingController _searchController = TextEditingController();
 
   String _search = '';
+  String? _importingItemId;
 
   @override
   void dispose() {
@@ -61,6 +67,62 @@ class _ProjectItemsPricesPageState extends State<ProjectItemsPricesPage> {
     return name.contains(_search) ||
         type.contains(_search) ||
         code.contains(_search);
+  }
+
+  /// استيراد أسعار التحليل إلى هذا البند بضغطة واحدة (بلا فتحه).
+  Future<void> _importAnalysis(DocumentSnapshot<Map<String, dynamic>> doc) async {
+    if (_importingItemId != null) return;
+
+    final user = _auth.currentUser;
+    if (user == null) {
+      AppWidgets.showError(context, 'انتهت جلسة تسجيل الدخول.');
+      return;
+    }
+
+    final data = doc.data() ?? <String, dynamic>{};
+    final name = _text(
+      data['name'],
+      fallback: _text(data['typeName'], fallback: 'البند'),
+    );
+
+    final confirmed = await AppWidgets.showConfirmDialog(
+      context: context,
+      title: 'استيراد أسعار التحليل',
+      message: 'سيُطبَّق جدول تحليل الوحدة ($unitAnalysisYear) على «$name»: '
+          '${unitAnalysisLaborCount} مهنة، '
+          '${unitAnalysisEquipmentCount} معدة، '
+          '${unitAnalysisFuelCount} وقود، '
+          '${unitAnalysisMaterialsCount} مادة.\n\n'
+          'السطر الموجود يُحدَّث سعره، وغير الموجود يُضاف بلا كميات.',
+      confirmText: 'استيراد',
+    );
+
+    if (!confirmed) return;
+
+    setState(() => _importingItemId = doc.id);
+
+    try {
+      final result = await UnitAnalysisImporter.importToItem(
+        itemId: doc.id,
+        projectId: widget.projectId,
+        userId: user.uid,
+      );
+
+      try {
+        await ProjectCostSync.applyTotals(widget.projectId);
+      } catch (e) {
+        debugPrint('تعذرت مزامنة تكاليف المشروع: $e');
+      }
+
+      if (!mounted) return;
+      setState(() => _importingItemId = null);
+
+      AppWidgets.showSuccess(context, result.message);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _importingItemId = null);
+      AppWidgets.showError(context, 'تعذر استيراد أسعار التحليل:\n$e');
+    }
   }
 
   void _openItem(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -194,6 +256,21 @@ class _ProjectItemsPricesPageState extends State<ProjectItemsPricesPage> {
                                 ],
                               ),
                             ),
+                            if (_importingItemId == doc.id)
+                              const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            else
+                              IconButton(
+                                tooltip: 'استيراد أسعار التحليل إلى هذا البند',
+                                onPressed: () => _importAnalysis(doc),
+                                icon: const Icon(
+                                  Icons.download_for_offline_outlined,
+                                  color: AppColors.qualityCostManager,
+                                ),
+                              ),
                             const Icon(
                               Icons.chevron_left,
                               color: AppColors.textSecondary,
