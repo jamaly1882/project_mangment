@@ -37,6 +37,7 @@ class _CostLineRow {
         manual = data?[CostLineSchema.manualKey] == true,
         legacy = data?[CostLineSchema.legacyKey] == true,
         excluded = data?[CostLineSchema.excludedKey] == true,
+        picked = data?[CostLineSchema.pickedKey] == true,
         id = data == null ? null : _idOf(schema, data);
 
   final Map<String, TextEditingController> controllers;
@@ -44,6 +45,9 @@ class _CostLineRow {
 
   bool manual;
   bool legacy;
+
+  /// سطر أضافه المستخدم من جدول التحليل (يظهر في الجداول).
+  bool picked;
 
   /// سطر مستبعد: يختفي إدخاله ولا يدخل في الإجمالي، دون أن يمسح
   /// المستخدم ما كتبه بنفسه.
@@ -148,6 +152,8 @@ class _CostLineRow {
     }
 
     map[CostLineSchema.excludedKey] = excluded;
+
+    if (picked) map[CostLineSchema.pickedKey] = true;
 
     // السطر المستبعد لا يحمل تكلفة.
     if (excluded) {
@@ -386,6 +392,8 @@ class CostLinesEditorController extends ChangeNotifier {
   int selectLabel(String label, double price) {
     final index = ensureLabel(label, price);
 
+    _rows[index].picked = true;
+
     for (final key in quantityKeysOf(schema.kind)) {
       if (ProjectCosts.parseNumber(textOf(index, key)) <= 0) {
         setText(index, key, '1');
@@ -423,6 +431,17 @@ class CostLinesEditorController extends ChangeNotifier {
   }
 
   bool isLegacy(int index) => _row(index)?.legacy ?? false;
+
+  /// هل السطر أضافه المستخدم بنفسه (ظاهر في الجداول)؟
+  bool isPicked(int index) => _row(index)?.picked ?? false;
+
+  void markPicked(int index, bool value) {
+    final row = _row(index);
+    if (row == null) return;
+
+    row.picked = value;
+    notifyListeners();
+  }
 
   /// تثبيت التكلفة المكتوبة يدويًا أو إعادة حسابها تلقائيًا.
   void toggleManual(int index) {

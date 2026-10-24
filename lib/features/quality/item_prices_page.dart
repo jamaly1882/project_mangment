@@ -672,8 +672,10 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
       // «السطر مُدرج» بلا كميات (الكميات يدخلها المشرف).
       priceEditable: true,
       quantitySelection: false,
-      trailingNote: 'علّم ✓ على الأسطر التي يستخدمها البند، وعدّل '
-          '${CostPrices.priceLabelOf(kind)}. إلغاء ✓ يصفّر الكمية فقط.',
+      // القسم يبدأ فارغًا: ابحث بالاسم ثم أضف السطر.
+      searchFirst: true,
+      trailingNote: 'ابحث بالاسم ثم اضغط ＋ لإضافة السطر، وعدّل '
+          '${CostPrices.priceLabelOf(kind)}. إلغاء ✓ يُخفي السطر ويُبقي سعره.',
       onChanged: () {
         if (!mounted) return;
         setState(_syncPlannedFromEditors);

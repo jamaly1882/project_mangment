@@ -143,6 +143,10 @@ class CostLineSchema {
   static const String costKey = 'cost';
   static const String legacyKey = 'legacy';
 
+  /// سطر أضافه المستخدم بنفسه من جدول التحليل (ظاهر في الجداول).
+  /// الأسطر المعبّأة تلقائيًا تحمل false فلا تُزحم الشاشة.
+  static const String pickedKey = 'picked';
+
   /// مخططات الأقسام الأربعة.
   static const Map<CostLineKind, CostLineSchema> all = {
     CostLineKind.material: CostLineSchema(
@@ -929,46 +933,54 @@ Map<String, dynamic> buildCostLine({
   required CostLineKind kind,
   required String label,
   required double price,
+  bool picked = false,
 }) {
+  final map = <String, dynamic>{
+    CostLineSchema.excludedKey: false,
+    if (picked) CostLineSchema.pickedKey: true,
+  };
+
   switch (kind) {
     case CostLineKind.material:
-      return <String, dynamic>{
+      // الوحدة مطلوبة في السطر: نأخذ أول وحدة مناسبة لاسم المادة.
+      map.addAll(<String, dynamic>{
         'materialName': label,
-        // الوحدة مطلوبة في السطر: نأخذ أول وحدة مناسبة لاسم المادة.
         'unit': MaterialUnits.forName(label).first,
         'unitPrice': price,
         'quantity': 0,
-        CostLineSchema.excludedKey: false,
-      };
+      });
+      break;
     case CostLineKind.labor:
       // العدد ١ بلا مدة: يظهر السطر بالسعر، وتكلفته صفر حتى يدخل
       // المشرف المدة (أو العدد) الفعلية.
-      return <String, dynamic>{
+      map.addAll(<String, dynamic>{
         'job': label,
         'wageBasis': 'للوحدة',
         'count': 1,
         'wage': price,
         'duration': 0,
-        CostLineSchema.excludedKey: false,
-      };
+      });
+      break;
     case CostLineKind.equipment:
-      return <String, dynamic>{
+      map.addAll(<String, dynamic>{
         'equipmentType': label,
         'count': 1,
         'unit': 'ساعة',
         'unitPrice': price,
         'quantity': 0,
-        CostLineSchema.excludedKey: false,
-      };
+      });
+      break;
     case CostLineKind.fuel:
-      return <String, dynamic>{
+      map.addAll(<String, dynamic>{
         'fuelType': label,
         'quantity': 0,
         'unit': 'لتر',
         'pricePerLiter': price,
-        CostLineSchema.excludedKey: false,
-      };
+      });
+      break;
   }
+
+  return map;
 }
 
 /// اسم السطر بعد التوحيد: بلا تشكيل، وهمزات موحّدة، وبلا «ال» التعريف.

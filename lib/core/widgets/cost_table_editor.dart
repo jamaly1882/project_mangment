@@ -31,6 +31,7 @@ class CostTableEditor extends StatefulWidget {
     this.onChanged,
     this.allowCustom = true,
     this.quantitySelection = true,
+    this.searchFirst = false,
   });
 
   final CostLineSchema schema;
@@ -44,6 +45,10 @@ class CostTableEditor extends StatefulWidget {
   final VoidCallback? onChanged;
   final bool allowCustom;
 
+  /// وضع «ابحث وأضف»: القسم يبدأ فارغًا، والبحث يكشف الأسطر،
+  /// ولا يظهر في الجدول إلا ما أضافه المستخدم بنفسه.
+  final bool searchFirst;
+
   /// معنى ✓:
   ///   true  → السطر مستخدم وله كمية (صفحة المشرف).
   ///   false → السطر مُدرج في البند بالاسم والسعر فقط (صفحة الجودة).
@@ -56,6 +61,9 @@ class CostTableEditor extends StatefulWidget {
 class _CostTableEditorState extends State<CostTableEditor> {
   final TextEditingController _searchController = TextEditingController();
   String _query = '';
+
+  /// عرض جدول التحليل كاملًا حتى في وضع «ابحث وأضف».
+  bool _showAll = false;
 
   @override
   void initState() {
@@ -176,9 +184,35 @@ class _CostTableEditorState extends State<CostTableEditor> {
     final accent = widget.accent ?? AppColors.primary;
     final lines = _controller.lines;
 
+    final searchMode = widget.searchFirst && !_showAll;
+
     final analysis =
         _analysisLines.where((line) => _matchesQuery(line.label)).toList();
     final custom = _customIndexes;
+
+    // الأسطر المضافة بنفس المستخدم (وضع «ابحث وأضف»).
+    final picked = <_AnalysisLine>[];
+
+    if (widget.searchFirst) {
+      for (var i = 0; i < _controller.count; i++) {
+        if (!_controller.isPicked(i)) continue;
+
+        final label = _controller.textOf(i, _schema.titleKey);
+        if (label.trim().isEmpty) continue;
+
+        picked.add(
+          _AnalysisLine(
+            label: label,
+            price: CostLineSchema.number(lines[i], _schema.priceKey),
+            index: i,
+            selected: true,
+            cost: _schema.costOf(lines[i]),
+          ),
+        );
+      }
+    }
+
+    final shown = searchMode ? picked : analysis;
 
     return AppCard(
       child: Column(
@@ -232,7 +266,7 @@ class _CostTableEditorState extends State<CostTableEditor> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  'المختار: $_selectedCount',
+                  searchMode ? 'المضافة: ${picked.length}' : 'المختار: $_selectedCount',
                   style: AppTextStyles.small.copyWith(
                     color: accent,
                     fontWeight: FontWeight.bold,
@@ -244,33 +278,73 @@ class _CostTableEditorState extends State<CostTableEditor> {
 
           AppSpacing.verticalSm,
 
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final compact = constraints.maxWidth < 620;
+          // ------- نتائج البحث (وضع «ابحث وأضف») -------
+          if (searchMode && _query.trim().isNotEmpty) ...[
+            _searchResults(analysis, accent),
+            AppSpacing.verticalMd,
+          ],
 
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (!compact) _headerRow(),
-                  if (!compact) const Divider(height: 12),
+          if (searchMode && shown.isEmpty)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                'لا توجد أسطر بعد. ابحث بالاسم أعلاه ثم اضغط ＋ '
+                'لإضافة ${_schema.rowTitle} إلى البند.',
+                style: AppTextStyles.bodySecondary,
+              ),
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 620;
 
-                  if (analysis.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Text(
-                        'لا يوجد سطر مطابق لبحثك.',
-                        style: AppTextStyles.small,
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (!compact) _headerRow(),
+                    if (!compact) const Divider(height: 12),
+
+                    if (!searchMode && analysis.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text(
+                          'لا يوجد سطر مطابق لبحثك.',
+                          style: AppTextStyles.small,
+                        ),
                       ),
-                    ),
 
-                  for (final line in analysis)
-                    compact
-                        ? _compactRow(line, lines, accent)
-                        : _tableRow(line, lines, accent),
-                ],
-              );
-            },
-          ),
+                    for (final line in shown)
+                      compact
+                          ? _compactRow(line, lines, accent)
+                          : _tableRow(line, lines, accent),
+                  ],
+                );
+              },
+            ),
+
+          if (widget.searchFirst) ...[
+            AppSpacing.verticalXs,
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton.icon(
+                onPressed: () => setState(() => _showAll = !_showAll),
+                icon: Icon(
+                  _showAll ? Icons.visibility_off_outlined : Icons.table_rows_outlined,
+                  size: 18,
+                ),
+                label: Text(
+                  _showAll
+                      ? 'إخفاء جدول التحليل'
+                      : 'عرض كل الأسطر '
+                          '(${UnitAnalysisSeed.rowsOf(_schema.kind).length})',
+                ),
+              ),
+            ),
+          ],
 
           if (custom.isNotEmpty) ...[
             AppSpacing.verticalMd,
@@ -675,6 +749,86 @@ class _CostTableEditorState extends State<CostTableEditor> {
     );
   }
 
+  /// نتائج البحث: أسماء مطابقة من جدول التحليل مع زر إضافة.
+  Widget _searchResults(List<_AnalysisLine> matches, Color accent) {
+    final results = matches.take(8).toList();
+
+    if (results.isEmpty) {
+      return Text(
+        'لا يوجد اسم مطابق في جدول التحليل. '
+        'يمكنك إضافته كسطر مخصص أدناه.',
+        style: AppTextStyles.small,
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: accent.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'نتائج البحث (${matches.length})',
+            style: AppTextStyles.small.copyWith(
+              fontWeight: FontWeight.bold,
+              color: accent,
+            ),
+          ),
+          for (final line in results)
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    line.label,
+                    style: AppTextStyles.body,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text(
+                  ProjectCosts.formatMoney(line.price),
+                  style: AppTextStyles.small,
+                ),
+                AppSpacing.horizontalSm,
+                IconButton(
+                  tooltip: _controller.isPicked(line.index)
+                      ? 'مضاف'
+                      : 'إضافة إلى البند',
+                  iconSize: 20,
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(
+                    _controller.isPicked(line.index)
+                        ? Icons.check_circle
+                        : Icons.add_circle_outline,
+                    color: accent,
+                  ),
+                  onPressed: _controller.isPicked(line.index)
+                      ? null
+                      : () {
+                          _addFromSearch(line);
+                        },
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// يضيف سطرًا من نتائج البحث ويُعلّمه ظاهرًا.
+  void _addFromSearch(_AnalysisLine line) {
+    final index = _controller.ensureLabel(line.label, line.price);
+    _controller.markPicked(index, true);
+
+    setState(() => _query = '');
+    _searchController.clear();
+
+    widget.onChanged?.call();
+  }
+
   /// هل السطر «مختار» حسب وضع الصفحة؟
   bool _isSelected(int index) {
     if (index < 0) return false;
@@ -684,13 +838,23 @@ class _CostTableEditorState extends State<CostTableEditor> {
   }
 
   void _toggle(_AnalysisLine line, bool selected) {
+    if (!selected && widget.searchFirst) {
+      // إخفاء السطر مع بقائه محفوظًا (لا حذف للأسعار المعبّأة).
+      final index = _controller.indexOfLabel(line.label);
+      if (index >= 0) _controller.markPicked(index, false);
+
+      widget.onChanged?.call();
+      return;
+    }
+
     if (selected) {
       if (widget.quantitySelection) {
         // المشرف: السطر يبدأ بكمية ١ فتظهر تكلفته.
         _controller.selectLabel(line.label, line.price);
       } else {
-        // الجودة: سطر بالسعر فقط، بلا كميات (المشرف يدخلها).
-        _controller.ensureLabel(line.label, line.price);
+        // سطر بالسعر فقط، بلا كميات (المشرف يدخلها)، ويُعلَّم ظاهرًا.
+        final index = _controller.ensureLabel(line.label, line.price);
+        _controller.markPicked(index, true);
       }
     } else if (widget.quantitySelection) {
       // إلغاء ✓ يصفّر الكمية ويُبقي الاسم والسعر.
