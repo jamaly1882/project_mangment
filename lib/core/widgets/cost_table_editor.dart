@@ -32,6 +32,7 @@ class CostTableEditor extends StatefulWidget {
     this.allowCustom = true,
     this.quantitySelection = true,
     this.searchFirst = false,
+    this.autoQuantityOnAdd = false,
   });
 
   final CostLineSchema schema;
@@ -44,6 +45,10 @@ class CostTableEditor extends StatefulWidget {
   final String? trailingNote;
   final VoidCallback? onChanged;
   final bool allowCustom;
+
+  /// عند الإضافة من البحث: يبدأ السطر بكمية ١ فتظهر تكلفته فورًا
+  /// (صفحة المشرف). عند الجودة يبقى صفرًا حتى يُدخل المشرف كميته.
+  final bool autoQuantityOnAdd;
 
   /// وضع «ابحث وأضف»: القسم يبدأ فارغًا، والبحث يكشف الأسطر،
   /// ولا يظهر في الجدول إلا ما أضافه المستخدم بنفسه.
@@ -820,8 +825,12 @@ class _CostTableEditorState extends State<CostTableEditor> {
 
   /// يضيف سطرًا من نتائج البحث ويُعلّمه ظاهرًا.
   void _addFromSearch(_AnalysisLine line) {
-    final index = _controller.ensureLabel(line.label, line.price);
-    _controller.markPicked(index, true);
+    if (widget.autoQuantityOnAdd) {
+      _controller.selectLabel(line.label, line.price);
+    } else {
+      final index = _controller.ensureLabel(line.label, line.price);
+      _controller.markPicked(index, true);
+    }
 
     setState(() => _query = '');
     _searchController.clear();
@@ -841,7 +850,10 @@ class _CostTableEditorState extends State<CostTableEditor> {
     if (!selected && widget.searchFirst) {
       // إخفاء السطر مع بقائه محفوظًا (لا حذف للأسعار المعبّأة).
       final index = _controller.indexOfLabel(line.label);
-      if (index >= 0) _controller.markPicked(index, false);
+      if (index >= 0) {
+        if (widget.autoQuantityOnAdd) _controller.zeroQuantities(index);
+        _controller.markPicked(index, false);
+      }
 
       widget.onChanged?.call();
       return;
@@ -851,8 +863,10 @@ class _CostTableEditorState extends State<CostTableEditor> {
       if (widget.quantitySelection) {
         // المشرف: السطر يبدأ بكمية ١ فتظهر تكلفته.
         _controller.selectLabel(line.label, line.price);
+      } else if (widget.autoQuantityOnAdd) {
+        _controller.selectLabel(line.label, line.price);
       } else {
-        // سطر بالسعر فقط، بلا كميات (المشرف يدخلها)، ويُعلَّم ظاهرًا.
+        // سطر بالسعر فقط، بلا كميات، ويُعلَّم ظاهرًا.
         final index = _controller.ensureLabel(line.label, line.price);
         _controller.markPicked(index, true);
       }

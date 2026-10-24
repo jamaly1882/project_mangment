@@ -357,6 +357,58 @@ void main() {
       expect(controller.textOf(0, 'unitPrice'), '400000');
     });
 
+
+    testWidgets('وضع المشرف: ＋ يضيف بكمية ١ وإلغاء ✓ يصفّر ويُخفي',
+        (tester) async {
+      final schema = CostLineSchema.of(CostLineKind.material);
+      final controller = CostLinesEditorController(schema);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: CostTableEditor(
+                schema: schema,
+                controller: controller,
+                priceEditable: false,
+                searchFirst: true,
+                quantitySelection: false,
+                autoQuantityOnAdd: true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final search = find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            (widget.decoration?.hintText ?? '').contains('ابحث'),
+      );
+
+      await tester.enterText(search, 'أسمنت');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.add_circle_outline).first);
+      await tester.pumpAndSettle();
+
+      expect(controller.count, 1);
+      expect(controller.textOf(0, 'quantity'), '1');
+      expect(controller.total, 4000);
+      expect(controller.isPicked(0), isTrue);
+
+      // إلغاء ✓: تصفير الكمية وإخفاء السطر مع بقاء السعر.
+      await tester.tap(find.byType(Checkbox).first);
+      await tester.pumpAndSettle();
+
+      expect(controller.count, 1);
+      expect(controller.textOf(0, 'quantity'), '0');
+      expect(controller.total, 0);
+      expect(controller.isPicked(0), isFalse);
+      expect(controller.textOf(0, 'unitPrice'), '4000');
+    });
     testWidgets('زر «عرض كل الأسطر» يكشف جدول التحليل', (tester) async {
       final schema = CostLineSchema.of(CostLineKind.fuel);
       final controller = CostLinesEditorController(schema);
