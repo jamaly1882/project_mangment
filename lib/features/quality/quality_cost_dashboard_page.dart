@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/widgets/app_widgets.dart';
+import '../../core/services/item_approvals.dart';
 import '../project_manager/items_page.dart';
+import 'approvals_page.dart';
 
 // =============================================================
 // لوحة مدير إدارة الجودة والتكلفة
@@ -121,6 +123,58 @@ class _QualityCostDashboardPageState extends State<QualityCostDashboardPage> {
               },
             ),
             AppSpacing.verticalLg,
+
+            // أيقونتا الموافقات: الكميات الإضافية وتمديد الوقت.
+            Row(
+              children: [
+                Expanded(
+                  child: _ApprovalTile(
+                    title: 'الكميات الإضافية',
+                    icon: Icons.add_chart_outlined,
+                    color: AppColors.warning,
+                    stream: ItemApprovals.stream(
+                      kind: ApprovalKind.extraQuantity,
+                      status: ApprovalStatus.pending,
+                    ),
+                    projectIds: widget.projectIds,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ApprovalsPage(
+                          kind: ApprovalKind.extraQuantity,
+                          projectIds: widget.projectIds,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                AppSpacing.horizontalSm,
+                Expanded(
+                  child: _ApprovalTile(
+                    title: 'تمديد الوقت',
+                    icon: Icons.more_time_outlined,
+                    color: AppColors.info,
+                    stream: ItemApprovals.stream(
+                      kind: ApprovalKind.timeExtension,
+                      status: ApprovalStatus.pending,
+                    ),
+                    projectIds: widget.projectIds,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ApprovalsPage(
+                          kind: ApprovalKind.timeExtension,
+                          projectIds: widget.projectIds,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            AppSpacing.verticalLg,
+
             Expanded(
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: _firestore.collection('projects').snapshots(),
@@ -223,6 +277,86 @@ class _QualityCostDashboardPageState extends State<QualityCostDashboardPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+
+// =============================================================
+// بطاقة اختصار لطلبات الموافقة (كمية إضافية / تمديد وقت)
+// =============================================================
+
+class _ApprovalTile extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Color color;
+  final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
+  final List<String> projectIds;
+  final VoidCallback onTap;
+
+  const _ApprovalTile({
+    required this.title,
+    required this.icon,
+    required this.color,
+    required this.stream,
+    required this.projectIds,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color),
+              ),
+              const Spacer(),
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: stream,
+                builder: (context, snapshot) {
+                  final count = (snapshot.data?.docs ??
+                          <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+                      .where(
+                        (doc) => projectIds.isEmpty ||
+                            projectIds.contains(
+                              (doc.data()['projectId'] ?? '').toString(),
+                            ),
+                      )
+                      .length;
+
+                  if (count == 0) return const SizedBox.shrink();
+
+                  return AppStatusBadge(
+                    text: '$count',
+                    color: color,
+                  );
+                },
+              ),
+            ],
+          ),
+          AppSpacing.verticalSm,
+          Text(
+            title,
+            style: AppTextStyles.body.copyWith(fontWeight: FontWeight.bold),
+          ),
+          AppSpacing.verticalXs,
+          Text(
+            'طلبات بانتظار قرارك',
+            style: AppTextStyles.small,
+          ),
+        ],
       ),
     );
   }

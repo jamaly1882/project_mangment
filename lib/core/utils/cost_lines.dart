@@ -137,6 +137,9 @@ class CostLineSchema {
   final String note;
 
   static const String manualKey = 'manual';
+
+  /// علامة السطر المستبعد: يختفي إدخاله ولا يدخل في إجمالي القسم.
+  static const String excludedKey = 'excluded';
   static const String costKey = 'cost';
   static const String legacyKey = 'legacy';
 
@@ -396,6 +399,8 @@ class CostLineSchema {
 
   /// التكلفة المعتمدة للسطر: اليدوية إن وُجدت، وإلا المحسوبة.
   double costOf(Map<String, dynamic> line) {
+    if (line[excludedKey] == true) return 0;
+
     final isManual = line[manualKey] == true;
     final manual = line[costKey];
 
@@ -434,6 +439,9 @@ class CostLineSchema {
   /// تحقق من سطر واحد؛ يعيد قائمة رسائل (فارغة = سليم).
   List<String> validateLine(Map<String, dynamic> line, int index) {
     final errors = <String>[];
+
+    // السطر المستبعد لا يُدقَّق ولا يدخل في الإجمالي.
+    if (line[excludedKey] == true) return errors;
 
     final label = 'السطر ${index + 1} ($rowTitle)';
 

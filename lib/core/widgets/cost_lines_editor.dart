@@ -36,6 +36,7 @@ class _CostLineRow {
         ),
         manual = data?[CostLineSchema.manualKey] == true,
         legacy = data?[CostLineSchema.legacyKey] == true,
+        excluded = data?[CostLineSchema.excludedKey] == true,
         id = data == null ? null : _idOf(schema, data);
 
   final Map<String, TextEditingController> controllers;
@@ -43,6 +44,11 @@ class _CostLineRow {
 
   bool manual;
   bool legacy;
+
+  /// سطر مستبعد: يختفي إدخاله ولا يدخل في الإجمالي، دون أن يمسح
+  /// المستخدم ما كتبه بنفسه.
+  bool excluded;
+
   String? id;
 
   static String _costText(Map<String, dynamic>? data) {
@@ -132,13 +138,22 @@ class _CostLineRow {
     final map = <String, dynamic>{};
 
     for (final field in schema.fields) {
-      final text = controllers[field.key]!.text.trim();
+      final text = excluded ? '' : controllers[field.key]!.text.trim();
 
       if (field.isNumber) {
         map[field.key] = ProjectCosts.parseNumber(text);
       } else {
         map[field.key] = text;
       }
+    }
+
+    map[CostLineSchema.excludedKey] = excluded;
+
+    // السطر المستبعد لا يحمل تكلفة.
+    if (excluded) {
+      map[CostLineSchema.costKey] = 0.0;
+      map[CostLineSchema.manualKey] = false;
+      return map;
     }
 
     final typed = ProjectCosts.parseOptional(
@@ -200,6 +215,7 @@ class CostLinesEditorController extends ChangeNotifier {
     double sum = 0;
 
     for (final line in lines) {
+      if (line[CostLineSchema.excludedKey] == true) continue;
       sum += schema.costOf(line);
     }
 
@@ -307,6 +323,21 @@ class CostLinesEditorController extends ChangeNotifier {
   String? idOf(int index) => _row(index)?.id;
 
   bool isManual(int index) => _row(index)?.manual ?? false;
+
+  /// هل السطر مستبعد (إدخاله مخفي ولا يدخل في الإجمالي)؟
+  bool isExcluded(int index) => _row(index)?.excluded ?? false;
+
+  /// استبعاد/إرجاع السطر: يخفي الإدخال بدل أن يمسحه المستخدم.
+  void toggleExcluded(int index) {
+    final row = _row(index);
+    if (row == null) return;
+
+    row.excluded = !row.excluded;
+
+    if (!row.excluded) row.syncCost(schema);
+
+    _onChange();
+  }
 
   bool isLegacy(int index) => _row(index)?.legacy ?? false;
 
@@ -598,10 +629,21 @@ class _CostLinesEditorState extends State<CostLinesEditor> {
                 ),
               ),
               const Spacer(),
+              if (controller.isExcluded(index))
+                _chip('مستبعد', AppColors.danger),
               if (controller.isLegacy(index))
                 _chip('إدخال قديم', AppColors.info),
               if (controller.isManual(index))
                 _chip('يدوي', AppColors.warning),
+              // استبعاد السطر: عند التأشير يختفي الإدخال ولا يدخل في
+              // الإجمالي، بدل أن يمسح المستخدم ما كتبه بيده.
+              Checkbox(
+                visualDensity: VisualDensity.compact,
+                materialTapTargetSize:
+                    MaterialTapTargetSize.shrinkWrap,
+                value: controller.isExcluded(index),
+                onChanged: (_) => controller.toggleExcluded(index),
+              ),
               IconButton(
                 visualDensity: VisualDensity.compact,
                 tooltip: 'تكرار السطر',
@@ -621,6 +663,16 @@ class _CostLinesEditorState extends State<CostLinesEditor> {
             ],
           ),
 
+          if (controller.isExcluded(index)) ...[
+            const SizedBox(height: 4),
+            Text(
+              'السطر مستبعد: لا يظهر إدخاله ولا يدخل في إجمالي القسم. '
+              'أزل التأشير لإرجاعه كما كان (البيانات لم تُمحَ).',
+              style: AppTextStyles.small.copyWith(
+                color: AppColors.danger,
+              ),
+            ),
+          ] else ...[
           if (widget.options.isNotEmpty && schema.pickerIdKey != null) ...[
             const SizedBox(height: 4),
             _buildPicker(controller, schema, index),
@@ -651,6 +703,7 @@ class _CostLinesEditorState extends State<CostLinesEditor> {
             ),
 
           _buildCostField(controller, schema, index, accent),
+          ],
         ],
       ),
     );

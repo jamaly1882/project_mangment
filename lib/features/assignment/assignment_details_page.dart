@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants/previous_prices.dart';
 import '../../core/constants/roles.dart';
+import '../../core/services/item_approvals.dart';
 import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
@@ -80,6 +81,9 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   Map<String, dynamic>? _itemData;
   Map<String, dynamic>? _detailsData;
   Map<String, dynamic>? _assignmentData;
+
+  /// مباحات البند: الكمية الإضافية والزمن (من مدير الجودة).
+  ItemAllowance? _allowance;
 
   /// سعر الوحدة المقترح من خلاصة أسعار 1447هـ (سعر سابق).
   double? _suggestedUnitPrice;
@@ -477,6 +481,7 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
             : null;
         _assignmentData = assignment;
         _projectTotals = totals;
+        _allowance = ItemAllowance.fromData(item);
         _loading = false;
       });
     } catch (e) {
@@ -687,6 +692,8 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
       double previousExecuted = 0;
       double newExecuted = 0;
       double contractQuantity = 0;
+      bool requestedExtra = false;
+      bool requestedTime = false;
 
       await _firestore.runTransaction((transaction) async {
         final snapshot = await transaction.get(itemRef);
@@ -707,14 +714,43 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
             ProjectCosts.nonNegative(data['executedQuantity']);
         newExecuted = previousExecuted + entered;
 
-        if (contractQuantity > 0 && newExecuted > contractQuantity) {
-          final remaining = (contractQuantity - previousExecuted)
-              .clamp(0.0, double.infinity)
-              .toDouble();
+        final allowance = ItemAllowance.fromData(data);
+
+        // 1) زمن البند: مدة العقد من أول يوم تنفيذ + أي تمديد معتمد.
+        if (allowance.isTimeExpired) {
+          requestedTime = true;
+
+          final end = allowance.effectiveEnd;
 
           throw Exception(
-            'الكمية المضافة تتجاوز الكمية التعاقدية. '
-            'المتبقي: ${_formatNumber(remaining)} '
+            'انتهى زمن هذا البند'
+            '${end == null ? '' : ' في ${_formatDateValue(end)}'}'
+            '. رُفع طلب تمديد إلى مدير إدارة الجودة، '
+            'ولا يمكن تسجيل كميات حتى تتم الموافقة.',
+          );
+        }
+
+        // 2) الكمية: التعاقدية، وأي كمية إضافية لن تتجاوز 20% بموافقة
+        //    مدير إدارة الجودة.
+        if (contractQuantity > 0 && newExecuted > allowance.maxQuantity) {
+          final remaining = allowance.remaining;
+
+          if (!allowance.extraApproved) {
+            requestedExtra = true;
+
+            throw Exception(
+              'الكمية المضافة تتجاوز الكمية التعاقدية. '
+              'المتبقي: ${_formatNumber(remaining)} '
+              '${_stringValue(data['unit'])}. '
+              'رُفع طلب كمية إضافية إلى مدير إدارة الجودة '
+              '(الحد الأقصى 20% من الكمية التعاقدية).',
+            );
+          }
+
+          throw Exception(
+            'الكمية المضافة تتجاوز الحد المسموح بعد الكمية الإضافية '
+            '(${_formatNumber(allowance.extraPercent)}% من التعاقدية). '
+            'المتبقي المسموح: ${_formatNumber(remaining)} '
             '${_stringValue(data['unit'])}',
           );
         }
@@ -725,6 +761,22 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
           'executionUpdatedBy': user.uid,
           'executionUpdatedAt': FieldValue.serverTimestamp(),
         };
+
+        // أول يوم تنفيذ: يُسجَّل تلقائيًا من أول إدخال للمشرف،
+        // ومنه يُحسب تاريخ انتهاء البند = البداية + مدة العقد.
+        if (data['executionStartDate'] == null) {
+          final start = DateTime.now();
+
+          updates['executionStartDate'] = Timestamp.fromDate(start);
+          updates['contractStartDate'] = Timestamp.fromDate(start);
+
+          final days = ProjectCosts.nonNegative(data['durationDays']).round();
+          if (days > 0) {
+            updates['contractEndDate'] = Timestamp.fromDate(
+              start.add(Duration(days: days)),
+            );
+          }
+        }
 
         // تكلفة التنفيذ = تكلفة الوحدة × الكمية المنفذة الجديدة.
         final unitCost = ProjectCosts.totalUnitCost(data);
@@ -810,6 +862,31 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
         '${_stringValue(_itemData?['unit'])}',
       );
     } catch (e) {
+      // رفع الطلب إلى مدير إدارة الجودة إن كان السبب كمية أو زمنًا.
+      if (requestedExtra || requestedTime) {
+        final itemData = _itemData ?? const <String, dynamic>{};
+
+        await ItemApprovals.request(
+          itemId: widget.itemId,
+          projectId: widget.projectId,
+          kind: requestedExtra
+              ? ApprovalKind.extraQuantity
+              : ApprovalKind.timeExtension,
+          itemName: _itemName(itemData),
+          typeName: _stringValue(itemData['typeName']),
+          unit: _stringValue(itemData['unit']),
+          contractQuantity: contractQuantity,
+          executedQuantity: previousExecuted,
+          requestedPercent:
+              requestedExtra ? maxExtraQuantityPercent : 0,
+          requestedDays: 0,
+          note: requestedExtra
+              ? 'تجاوزت الكمية المنفذة الكمية التعاقدية'
+              : 'انتهى زمن البند',
+          requestedBy: user.uid,
+        );
+      }
+
       if (!mounted) return;
       AppWidgets.showError(
         context,
@@ -820,6 +897,11 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
       if (mounted) setState(() => _savingQuantity = false);
     }
   }
+
+  /// تنسيق تاريخ للعرض داخل الرسائل.
+  String _formatDateValue(DateTime date) =>
+      '${date.day.toString().padLeft(2, '0')}/'
+      '${date.month.toString().padLeft(2, '0')}/${date.year}';
 
   // ============================================================
   // العرض
@@ -844,29 +926,79 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   // ============================================================
 
   Widget _buildExecutionCard() {
-    final item = _itemData ?? <String, dynamic>{};
+    final item = _itemData ?? const <String, dynamic>{};
     final unit = _stringValue(item['unit']);
-    final contract = ProjectCosts.nonNegative(item['contractQuantity']);
-    final executed = ProjectCosts.nonNegative(item['executedQuantity']);
-    final remaining = contract > 0
-        ? (contract - executed).clamp(0.0, double.infinity).toDouble()
+    final allowance =
+        _allowance ?? ItemAllowance.fromData(item);
+    final contract = allowance.contractQuantity;
+    final executed = allowance.executedQuantity;
+    final maxQuantity = allowance.maxQuantity;
+
+    final remaining = maxQuantity.isFinite
+        ? (maxQuantity - executed).clamp(0.0, double.infinity).toDouble()
         : null;
+
     final progress = contract <= 0
         ? 0.0
         : (executed / contract).clamp(0.0, 1.0).toDouble();
-    final completed = contract > 0 && executed >= contract;
+
+    // «اكتملت» تعني استهلاك كل المسموح بعد الكمية الإضافية المعتمدة.
+    final completed = maxQuantity.isFinite && executed >= maxQuantity;
+    final timeExpired = allowance.isTimeExpired;
+    final start = allowance.contractStart;
+    final end = allowance.effectiveEnd;
 
     return AppCard(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if ((_allowance?.extraApproved ?? false) ||
+              (_allowance?.extensionDays ?? 0) > 0) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.success.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.verified_outlined,
+                    color: AppColors.success,
+                    size: 20,
+                  ),
+                  AppSpacing.horizontalSm,
+                  Expanded(
+                    child: Text(
+                      [
+                        if (_allowance?.extraApproved ?? false)
+                          'سمح لك مدير الجودة بإدخال كمية إضافية حتى '
+                              '${_formatNumber(_allowance!.extraPercent)}% '
+                              'من الكمية التعاقدية.',
+                        if ((_allowance?.extensionDays ?? 0) > 0)
+                          'تم تمديد زمن البند '
+                              '${_formatNumber(_allowance!.extensionDays)} يومًا.',
+                      ].join(' '),
+                      style: AppTextStyles.small.copyWith(
+                        color: AppColors.success,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const AppSectionTitle(
             title: 'تسجيل الكمية المنفذة',
             subtitle:
                 'أدخل الكمية التي نفذتها في هذا البند؛ تُضاف إلى الكمية '
-                'المنفذة السابقة ولا تتجاوز الكمية التعاقدية، وتُحدَّث '
-                'معها تكلفة التنفيذ وتكاليف المشروع تلقائيًا.',
+                'المنفذة السابقة ولا تتجاوز الكمية التعاقدية (إلا بكمية '
+                'إضافية معتمدة من مدير الجودة بحد 20%)، وتُحدَّث معها '
+                'تكلفة التنفيذ وتكاليف المشروع تلقائيًا. '
+                'أول إدخال يسجّل تاريخ بداية البند ويُحسب منه تاريخ الانتهاء.',
             icon: Icons.playlist_add_check,
           ),
           AppInfoRow(
@@ -890,6 +1022,55 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
                 : '${_formatNumber(remaining)} $unit',
             icon: Icons.pending_actions_outlined,
           ),
+          if (start != null) ...[
+            AppSpacing.verticalSm,
+            AppInfoRow(
+              label: 'أول يوم تنفيذ (بداية البند)',
+              value: _formatDateValue(start),
+              icon: Icons.event_available_outlined,
+            ),
+          ],
+          if (end != null) ...[
+            AppSpacing.verticalSm,
+            AppInfoRow(
+              label: 'تاريخ انتهاء البند',
+              value: _formatDateValue(end) +
+                  (allowance.extensionDays > 0 ? ' (بعد تمديد)' : ''),
+              icon: Icons.event_busy_outlined,
+            ),
+          ],
+          if (allowance.extraApproved) ...[
+            AppSpacing.verticalSm,
+            AppInfoRow(
+              label: 'كمية إضافية معتمدة من مدير الجودة',
+              value: '${_formatNumber(allowance.extraPercent)}% '
+                  '= ${_formatNumber(allowance.extraAllowance)} $unit',
+              icon: Icons.verified_outlined,
+            ),
+          ],
+          if (!allowance.extraApproved && allowance.isOverContract) ...[
+            AppSpacing.verticalSm,
+            Text(
+              'الكمية المنفذة تجاوزت الكمية التعاقدية دون موافقة. '
+              'راجع مدير إدارة الجودة.',
+              style: AppTextStyles.small.copyWith(color: AppColors.danger),
+            ),
+          ],
+          if (timeExpired) ...[
+            AppSpacing.verticalSm,
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.danger.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text(
+                'انتهى زمن هذا البند. رُفع طلب تمديد إلى مدير إدارة '
+                'الجودة، ولا يمكن تسجيل كميات حتى تتم الموافقة.',
+                style: AppTextStyles.small,
+              ),
+            ),
+          ],
           AppSpacing.verticalMd,
           AppProgress(
             value: progress,
@@ -903,7 +1084,7 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
             hint: 'أدخل الكمية التي أنجزتها الآن',
             suffixText: unit.isEmpty ? null : unit,
             prefixIcon: Icons.add_chart,
-            enabled: !completed,
+            enabled: !completed && !timeExpired,
           ),
           if (completed) ...[
             AppSpacing.verticalSm,
@@ -919,7 +1100,7 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
             icon: Icons.add_task,
             expanded: true,
             loading: _savingQuantity,
-            onPressed: completed || _savingQuantity
+            onPressed: completed || timeExpired || _savingQuantity
                 ? null
                 : _saveExecutedQuantity,
           ),
@@ -937,8 +1118,23 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
     final remaining = quantity == null || executed == null
         ? null
         : (quantity - executed).clamp(0, double.infinity).toDouble();
-    final equipmentName =
-        _stringValue(details['equipmentName'], fallback: 'غير محددة');
+    // قد يعمل على البند أكثر من معدة.
+    final equipmentNames = <String>[];
+    final rawEquipmentNames = details['equipmentNames'];
+    if (rawEquipmentNames is Iterable) {
+      for (final value in rawEquipmentNames) {
+        final name = (value ?? '').toString().trim();
+        if (name.isNotEmpty) equipmentNames.add(name);
+      }
+    }
+    if (equipmentNames.isEmpty) {
+      final single = _stringValue(details['equipmentName']);
+      if (single.isNotEmpty) equipmentNames.add(single);
+    }
+
+    final equipmentName = equipmentNames.isEmpty
+        ? 'غير محددة'
+        : equipmentNames.join(' + ');
     final equipmentCode = _stringValue(details['equipmentCode'], fallback: '—');
     final equipmentWorkUnit =
         _stringValue(details['equipmentWorkUnit'], fallback: 'غير محددة');
@@ -1024,7 +1220,9 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
           ),
           AppSpacing.verticalSm,
           AppInfoRow(
-            label: 'اسم المعدة',
+            label: equipmentNames.length > 1
+                ? 'المعدات (${equipmentNames.length})'
+                : 'اسم المعدة',
             value: equipmentName,
             icon: Icons.construction_outlined,
           ),

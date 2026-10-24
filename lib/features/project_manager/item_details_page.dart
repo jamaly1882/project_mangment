@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/services/project_cost_sync.dart';
+import '../../core/services/item_approvals.dart';
 import '../../core/services/project_team.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
@@ -101,6 +102,10 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   /// هل طلب المستخدم تغيير المشرف المقترح يدويًا؟
   bool _showSupervisorPicker = false;
   String? _selectedEquipmentId;
+
+  /// يمكن أن يعمل على البند أكثر من معدة. القائمة هي المصدر،
+  /// والحقل المفرد يبقى أول معدة للتوافق مع بقية الصفحات.
+  List<String> _selectedEquipmentIds = <String>[];
   String? _selectedEquipmentCode;
   String? _selectedEquipmentWorkUnit;
   double? _equipmentMeterAtAssignment;
@@ -317,9 +322,23 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         _costEditors[schema.kind]?.applyLines(saved[schema.kind]);
       }
 
-      _selectedEquipmentId = _stringValue(details['equipmentId']).isEmpty
-          ? null
-          : _stringValue(details['equipmentId']);
+      final savedEquipmentIds = <String>[];
+
+      final rawEquipmentIds = details['equipmentIds'];
+      if (rawEquipmentIds is Iterable) {
+        for (final value in rawEquipmentIds) {
+          final id = (value ?? '').toString().trim();
+          if (id.isNotEmpty) savedEquipmentIds.add(id);
+        }
+      }
+
+      final singleEquipmentId = _stringValue(details['equipmentId']);
+      if (singleEquipmentId.isNotEmpty && !savedEquipmentIds.contains(singleEquipmentId)) {
+        savedEquipmentIds.insert(0, singleEquipmentId);
+      }
+
+      _selectedEquipmentIds = savedEquipmentIds;
+      _selectedEquipmentId = savedEquipmentIds.isEmpty ? null : savedEquipmentIds.first;
       _selectedEquipmentCode = _stringValue(details['equipmentCode']).isEmpty
           ? null
           : _stringValue(details['equipmentCode']);
@@ -490,8 +509,8 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   Future<void> _saveAll() async {
     if (_savingAll || _itemData == null) return;
 
-    if (_selectedEquipmentId == null || _selectedEquipmentId!.isEmpty) {
-      AppWidgets.showWarning(context, 'يرجى اختيار المعدة من حصر المعدات');
+    if (_selectedEquipmentIds.isEmpty) {
+      AppWidgets.showWarning(context, 'يرجى اختيار معدة واحدة على الأقل من حصر المعدات');
       return;
     }
     if (_selectedSupervisorId == null || _selectedSupervisorId!.isEmpty) {
@@ -568,14 +587,39 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
 
     setState(() => _savingAll = true);
     try {
-      // إعادة قراءة المعدة ومشرف البند قبل الحفظ للتأكد من صحة سجلاتهما.
-      final equipmentDoc = await _equipmentCollection.doc(_selectedEquipmentId).get();
-      if (!equipmentDoc.exists) {
-        throw Exception('المعدة المحددة لم تعد موجودة في حصر المعدات');
+      // إعادة قراءة المعدات ومشرف البند قبل الحفظ للتأكد من صحة سجلاتها.
+      // يمكن أن يعمل على البند أكثر من معدة.
+      final equipmentNamesList = <String>[];
+      final equipmentCodesList = <String>[];
+      final equipmentIdsList = <String>[];
+      final equipmentWorkUnitsList = <String>[];
+      final equipmentMetersList = <double?>[];
+
+      for (final id in _selectedEquipmentIds) {
+        final equipmentDoc = await _equipmentCollection.doc(id).get();
+        if (!equipmentDoc.exists) {
+          throw Exception('إحدى المعدات المحددة لم تعد موجودة في حصر المعدات');
+        }
+
+        final data = equipmentDoc.data() ?? <String, dynamic>{};
+        if (_stringValue(data['status'], defaultValue: 'active') == 'inactive') {
+          throw Exception('إحدى المعدات المحددة غير نشطة؛ اختر معدة نشطة أخرى');
+        }
+
+        equipmentIdsList.add(id);
+        equipmentNamesList.add(
+          _stringValue(
+            data['name'] ?? data['type'],
+            defaultValue: 'معدة بدون اسم',
+          ),
+        );
+        equipmentCodesList.add(_stringValue(data['code']));
+        equipmentWorkUnitsList.add(_stringValue(data['workUnit']));
+        equipmentMetersList.add(_toDouble(data['currentMeter']));
       }
-      final equipment = equipmentDoc.data() ?? <String, dynamic>{};
-      if (_stringValue(equipment['status'], defaultValue: 'active') == 'inactive') {
-        throw Exception('المعدة المحددة غير نشطة؛ اختر معدة نشطة أخرى');
+
+      if (equipmentIdsList.isEmpty) {
+        throw Exception('اختر معدة واحدة على الأقل');
       }
 
       final supervisorDoc =
@@ -603,13 +647,13 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         );
       }
 
-      final equipmentName = _stringValue(
-        equipment['name'] ?? equipment['type'],
-        defaultValue: 'معدة بدون اسم',
-      );
-      final equipmentCode = _stringValue(equipment['code']);
-      final equipmentWorkUnit = _stringValue(equipment['workUnit']);
-      final equipmentCurrentMeter = _toDouble(equipment['currentMeter']);
+      // الحقول المفردة = أول معدة (توافق مع بقية الصفحات والتقارير)،
+      // والقوائم تحمل كل المعدات.
+      final equipmentId = equipmentIdsList.first;
+      final equipmentName = equipmentNamesList.first;
+      final equipmentCode = equipmentCodesList.first;
+      final equipmentWorkUnit = equipmentWorkUnitsList.first;
+      final equipmentCurrentMeter = equipmentMetersList.first;
 
       // مزامنة الاسم من حساب المشرف لتجنب حفظ اسم قديم.
       final supervisorName = _stringValue(
@@ -656,11 +700,18 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         'supervisorId': _selectedSupervisorId,
         'supervisorName': supervisorDisplayName,
         'assignedToType': 'supervisor',
-        'equipmentId': _selectedEquipmentId,
+        // أول معدة (توافق) + كل المعدات المرتبطة بالبند.
+        'equipmentId': equipmentId,
         'equipmentName': equipmentName,
         'equipmentCode': equipmentCode,
         'equipmentWorkUnit': equipmentWorkUnit,
         'equipmentCurrentMeterAtAssignment': equipmentCurrentMeter,
+        'equipmentIds': equipmentIdsList,
+        'equipmentNames': equipmentNamesList,
+        'equipmentCodes': equipmentCodesList,
+        'equipmentWorkUnits': equipmentWorkUnitsList,
+        'equipmentMetersAtAssignment': equipmentMetersList,
+        'equipmentCount': equipmentIdsList.length,
         // صفحة المدير لم تعد تدخل نوع الوقود والكميات المخططة: تُسجَّل
         // أسطرًا في قسم «تكلفة استهلاك المحروقات» أعلاه. نتوقف عن الكتابة
         // فقط، فلا تُمسح القيم القديمة المحفوظة في البنود الحالية.
@@ -675,9 +726,11 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         'projectId': widget.projectId,
         'supervisorId': _selectedSupervisorId,
         'supervisorName': supervisorDisplayName,
-        'equipmentId': _selectedEquipmentId,
+        'equipmentId': equipmentId,
         'equipmentName': equipmentName,
         'equipmentCode': equipmentCode,
+        'equipmentIds': equipmentIdsList,
+        'equipmentNames': equipmentNamesList,
         'active': true,
         'updatedAt': FieldValue.serverTimestamp(),
         'updatedBy': currentUser.uid,
@@ -699,6 +752,11 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           'unit': _selectedUnit,
           'supervisorId': _selectedSupervisorId,
           'supervisorName': supervisorDisplayName,
+          'equipmentId': equipmentId,
+          'equipmentName': equipmentName,
+          'equipmentIds': equipmentIdsList,
+          'equipmentNames': equipmentNamesList,
+          'equipmentCount': equipmentIdsList.length,
 
           // إعادة حساب تكلفة المنفذ من تكلفة الوحدة الجديدة.
           ProjectCosts.executedCostField:
@@ -750,6 +808,7 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       if (!mounted) return;
       setState(() {
         _selectedSupervisorName = supervisorDisplayName;
+        _selectedEquipmentId = equipmentId;
         _selectedEquipmentCode = equipmentCode;
         _selectedEquipmentWorkUnit = equipmentWorkUnit;
         _equipmentMeterAtAssignment = equipmentCurrentMeter;
@@ -874,6 +933,8 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
               ),
             ],
           ),
+          AppSpacing.verticalSm,
+          _buildContractDatesCard(),
           AppSpacing.verticalMd,
           AppTextField(
             controller: _descriptionController,
@@ -977,61 +1038,64 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         final allDocs = snapshot.data?.docs ?? [];
         final options = allDocs.where((doc) {
           final status = _stringValue(doc.data()['status'], defaultValue: 'active');
-          return status != 'inactive' || doc.id == _selectedEquipmentId;
+          return status != 'inactive' ||
+              _selectedEquipmentIds.contains(doc.id);
         }).toList()
-          ..sort((a, b) => _stringValue(a.data()['code']).compareTo(_stringValue(b.data()['code'])));
+          ..sort(
+            (a, b) => _stringValue(a.data()['code'])
+                .compareTo(_stringValue(b.data()['code'])),
+          );
 
         if (options.isEmpty) {
           return const AppEmpty(
-            message: 'لا توجد معدات مسجلة. أضف المعدات أولًا من صفحة «حصر المعدات» لدى مسؤول النظام.',
+            message:
+                'لا توجد معدات مسجلة. أضف المعدات أولًا من صفحة «حصر المعدات» لدى مسؤول النظام.',
             icon: Icons.precision_manufacturing_outlined,
           );
         }
 
-        final valueExists = options.any((doc) => doc.id == _selectedEquipmentId);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            AppDropdown<String>(
-              label: 'المعدة *',
-              hint: 'اختر المعدة من حصر المعدات',
-              value: valueExists ? _selectedEquipmentId : null,
-              prefixIcon: Icons.precision_manufacturing_outlined,
-              items: options.map((doc) {
-                final data = doc.data();
-                final inactive = _stringValue(data['status'], defaultValue: 'active') == 'inactive';
-                return DropdownMenuItem<String>(
-                  value: doc.id,
-                  enabled: !inactive,
-                  child: Text(
-                    '${_equipmentDisplayName(data)}${inactive ? ' (غير نشطة)' : ''}',
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                );
-              }).toList(),
-              onChanged: (id) {
-                if (id == null) return;
-                final selectedDoc = options.firstWhere((doc) => doc.id == id);
-                final data = selectedDoc.data();
-                setState(() {
-                  _selectedEquipmentId = id;
-                  _selectedEquipmentCode = _stringValue(data['code']);
-                  _selectedEquipmentWorkUnit = _stringValue(data['workUnit']);
-                  _equipmentMeterAtAssignment = _toDouble(data['currentMeter']);
-                });
-              },
+            Text(
+              'المعدات العاملة على البند — يمكن اختيار أكثر من معدة.',
+              style: AppTextStyles.bodySecondary,
             ),
-            if (_selectedEquipmentId != null) ...[
+            AppSpacing.verticalSm,
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final doc in options)
+                  _buildEquipmentChip(doc),
+              ],
+            ),
+            if (_selectedEquipmentIds.isEmpty) ...[
+              AppSpacing.verticalXs,
+              Text(
+                'اختر معدة واحدة على الأقل.',
+                style: AppTextStyles.small.copyWith(color: AppColors.danger),
+              ),
+            ],
+            if (_selectedEquipmentIds.isNotEmpty) ...[
               AppSpacing.verticalSm,
               AppCard(
                 color: AppColors.background,
                 child: Column(
                   children: [
-                    AppInfoRow(label: 'كود المعدة', value: _selectedEquipmentCode?.isNotEmpty == true ? _selectedEquipmentCode! : '—', icon: Icons.tag),
-                    AppSpacing.verticalXs,
-                    AppInfoRow(label: 'وحدة عمل المعدة', value: _selectedEquipmentWorkUnit?.isNotEmpty == true ? _selectedEquipmentWorkUnit! : 'غير محددة', icon: Icons.speed),
-                    AppSpacing.verticalXs,
-                    AppInfoRow(label: 'قراءة العداد عند الإسناد', value: _equipmentMeterAtAssignment == null ? 'غير مسجلة' : _equipmentMeterAtAssignment!.toString(), icon: Icons.speed_outlined),
+                    AppInfoRow(
+                      label: 'عدد المعدات',
+                      value: '${_selectedEquipmentIds.length}',
+                      icon: Icons.precision_manufacturing_outlined,
+                    ),
+                    for (var i = 0; i < _selectedEquipmentIds.length; i++) ...[
+                      AppSpacing.verticalXs,
+                      AppInfoRow(
+                        label: i == 0 ? 'المعدة الرئيسية' : 'معدة إضافية ${i + 1}',
+                        value: _equipmentLabelById(options, _selectedEquipmentIds[i]),
+                        icon: Icons.construction_outlined,
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1039,6 +1103,62 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           ],
         );
       },
+    );
+  }
+
+  String _equipmentLabelById(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> options,
+    String id,
+  ) {
+    for (final doc in options) {
+      if (doc.id == id) return _equipmentDisplayName(doc.data());
+    }
+    return 'معدة محذوفة';
+  }
+
+  Widget _buildEquipmentChip(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data();
+    final selected = _selectedEquipmentIds.contains(doc.id);
+    final inactive =
+        _stringValue(data['status'], defaultValue: 'active') == 'inactive';
+
+    return FilterChip(
+      selected: selected,
+      onSelected: inactive && !selected
+          ? null
+          : (_) {
+              setState(() {
+                if (selected) {
+                  _selectedEquipmentIds =
+                      _selectedEquipmentIds.where((id) => id != doc.id).toList();
+                } else {
+                  _selectedEquipmentIds = <String>[
+                    ..._selectedEquipmentIds,
+                    doc.id,
+                  ];
+                }
+
+                _selectedEquipmentId = _selectedEquipmentIds.isEmpty
+                    ? null
+                    : _selectedEquipmentIds.first;
+
+                if (_selectedEquipmentId == doc.id) {
+                  _selectedEquipmentCode = _stringValue(data['code']);
+                  _selectedEquipmentWorkUnit = _stringValue(data['workUnit']);
+                  _equipmentMeterAtAssignment = _toDouble(data['currentMeter']);
+                }
+              });
+            },
+      avatar: Icon(
+        selected ? Icons.check_circle : Icons.radio_button_unchecked,
+        size: 18,
+      ),
+      label: Text(
+        '${_equipmentDisplayName(data)}${inactive ? ' (غير نشطة)' : ''}',
+        overflow: TextOverflow.ellipsis,
+      ),
     );
   }
 
@@ -1374,6 +1494,91 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         ],
       ),
     );
+  }
+
+  /// تاريخ بداية البند وانتهائه:
+  /// البداية = أول يوم يسجّل فيه المشرف كمية منفذة،
+  /// والانتهاء = البداية + مدة العقد (+ أي تمديد معتمد).
+  Widget _buildContractDatesCard() {
+    final item = _itemData ?? const <String, dynamic>{};
+
+    final DateTime? start = _toDate(
+      item['executionStartDate'] ?? item['contractStartDate'],
+    );
+    final durationDays = _toDouble(item['durationDays']) ?? 0;
+
+    DateTime? end = _toDate(item['contractEndDate']);
+    if (end == null && start != null && durationDays > 0) {
+      end = start.add(Duration(days: durationDays.round()));
+    }
+
+    final extensionUntil = _toDate(item['timeExtensionUntil']);
+    final extensionDays = _toDouble(item['timeExtensionDays']) ?? 0;
+
+    final effectiveEnd = extensionUntil ?? end;
+
+    final allowance = ItemAllowance.fromData(item);
+
+    return AppCard(
+      color: AppColors.background,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const AppSectionTitle(
+            title: 'زمن البند',
+            subtitle:
+                'البداية تُسجَّل تلقائيًا من أول إدخال للمشرف للكمية '
+                'المنفذة، والانتهاء = البداية + مدة العقد.',
+            icon: Icons.event_note_outlined,
+          ),
+          AppSpacing.verticalXs,
+          AppInfoRow(
+            label: 'أول يوم تنفيذ (بداية البند)',
+            value: start == null ? 'لم يبدأ التنفيذ بعد' : _formatDate(start),
+            icon: Icons.play_circle_outline,
+          ),
+          AppSpacing.verticalXs,
+          AppInfoRow(
+            label: 'مدة العقد',
+            value: durationDays <= 0
+                ? 'غير محددة'
+                : '${ProjectCosts.formatNumber(durationDays)} يومًا',
+            icon: Icons.timelapse_outlined,
+          ),
+          AppSpacing.verticalXs,
+          AppInfoRow(
+            label: 'تاريخ انتهاء البند',
+            value: effectiveEnd == null ? 'غير محدد' : _formatDate(effectiveEnd),
+            icon: Icons.event_busy_outlined,
+          ),
+          if (extensionDays > 0) ...[
+            AppSpacing.verticalXs,
+            AppInfoRow(
+              label: 'تمديد معتمد من مدير الجودة',
+              value: '${ProjectCosts.formatNumber(extensionDays)} يومًا',
+              icon: Icons.more_time_outlined,
+            ),
+          ],
+          if (allowance.extraApproved) ...[
+            AppSpacing.verticalXs,
+            AppInfoRow(
+              label: 'كمية إضافية معتمدة',
+              value:
+                  '${ProjectCosts.formatNumber(allowance.extraPercent)}% '
+                  '(${ProjectCosts.formatNumber(allowance.extraAllowance)} '
+                  '${_stringValue(item['unit'])})',
+              icon: Icons.verified_outlined,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  DateTime? _toDate(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    return null;
   }
 
   // ============================================================
