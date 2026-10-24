@@ -62,7 +62,11 @@ class ProjectManagerDashboardPage extends StatelessWidget {
   }
 
   // =============================================================
-  // فتح صفحة البنود
+  // عرض بنود المشروع (قراءة وإحصاءات)
+  //
+  // إضافة البنود والكميات التعاقدية والتكاليف صلاحية مدير إدارة
+  // الجودة، وتسجيل الكميات المنفذة صلاحية مشرف البند؛ فلا تُعرض
+  // هنا أي أزرار إدخال.
   // =============================================================
 
   void openItemsPage(BuildContext context) {
@@ -188,17 +192,6 @@ class ProjectManagerDashboardPage extends StatelessWidget {
           onTap: () {},
         ),
 
-        // ---------------------------------------------------------
-        // البنود
-        // ---------------------------------------------------------
-
-        AppDrawerItem(
-          icon: Icons.list_alt,
-          title: 'البنود',
-          onTap: () {
-            openItemsPage(context);
-          },
-        ),
       ],
       onLogout: () {
         logout(context);
@@ -496,86 +489,6 @@ class ProjectManagerDashboardPage extends StatelessWidget {
   }
 
   // =============================================================
-  // بطاقة إدارة البنود
-  // =============================================================
-
-  Widget _buildItemsManagementCard(
-    BuildContext context,
-  ) {
-    return AppCard(
-      padding: EdgeInsets.zero,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () {
-          openItemsPage(context);
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              // ---------------------------------------------------
-              // الأيقونة
-              // ---------------------------------------------------
-
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(
-                    alpha: 0.10,
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.list_alt,
-                  color: AppColors.primary,
-                  size: 25,
-                ),
-              ),
-
-              AppSpacing.horizontalMd,
-
-              // ---------------------------------------------------
-              // النص
-              // ---------------------------------------------------
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'البنود',
-                      style: AppTextStyles.cardTitle,
-                    ),
-
-                    AppSpacing.verticalXs,
-
-                    Text(
-                      'إضافة ومتابعة بنود المشروع',
-                      style: AppTextStyles.bodySecondary,
-                    ),
-                  ],
-                ),
-              ),
-
-              // ---------------------------------------------------
-              // السهم
-              // ---------------------------------------------------
-
-              const Icon(
-                Icons.arrow_forward_ios,
-                size: 16,
-                color: AppColors.textSecondary,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // =============================================================
   // بناء الصفحة
   // =============================================================
 
@@ -732,23 +645,6 @@ class ProjectManagerDashboardPage extends StatelessWidget {
                   ),
 
                   AppSpacing.verticalXl,
-
-                  // =================================================
-                  // 4. صفحة البنود
-                  // =================================================
-
-                  Text(
-                    'إدارة المشروع',
-                    style: AppTextStyles.sectionTitle,
-                  ),
-
-                  AppSpacing.verticalMd,
-
-                  _buildItemsManagementCard(
-                    context,
-                  ),
-
-                  AppSpacing.verticalLg,
                 ],
               ),
             ),

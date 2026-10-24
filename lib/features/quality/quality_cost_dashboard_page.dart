@@ -9,6 +9,7 @@ import '../../core/services/item_approvals.dart';
 import '../project_manager/items_page.dart';
 import 'approvals_page.dart';
 import 'item_prices_page.dart';
+import 'project_items_page.dart';
 import 'project_prices_page.dart';
 
 // =============================================================
@@ -88,6 +89,59 @@ class _QualityCostDashboardPageState extends State<QualityCostDashboardPage> {
     return name.contains(_search) || code.contains(_search);
   }
 
+  /// بطاقة «إضافة ومتابعة بنود المشروع» (نُقلت من لوحة مهندس المشروع).
+  Widget _buildItemsManagementCard() {
+    return AppCard(
+      padding: EdgeInsets.zero,
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ProjectItemsPage(
+            projectIds: widget.projectIds,
+          ),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: AppColors.qualityCostManager.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(
+                Icons.list_alt,
+                color: AppColors.qualityCostManager,
+              ),
+            ),
+            AppSpacing.horizontalMd,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('البنود', style: AppTextStyles.cardTitle),
+                  AppSpacing.verticalXs,
+                  const Text(
+                    'إضافة ومتابعة بنود المشروع',
+                    style: AppTextStyles.bodySecondary,
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: AppColors.textSecondary,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final linkedOnly = widget.projectIds.isNotEmpty;
@@ -115,7 +169,13 @@ class _QualityCostDashboardPageState extends State<QualityCostDashboardPage> {
                   'الكميات المنفذة.',
               icon: Icons.fact_check_outlined,
             ),
-            AppSpacing.verticalLg,
+            AppSpacing.verticalMd,
+
+            // إضافة ومتابعة بنود المشروع — انتقلت من لوحة مهندس المشروع
+            // لأن إدخال البنود والتكاليف من صلاحية مدير الجودة.
+            _buildItemsManagementCard(),
+
+            AppSpacing.verticalMd,
             AppTextField(
               controller: _searchController,
               label: 'البحث',

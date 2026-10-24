@@ -220,6 +220,62 @@ void main() {
     });
   });
 
+  group('CostPrices.newLine — أسطر مستوردة بلا كميات', () {
+    test('المادة تُضاف بسعرها وكمية صفر وتكلفة صفر', () {
+      final entry = PriceEntry(
+        label: 'أسمنت',
+        kind: CostLineKind.material,
+        price: 4000,
+      );
+
+      final line = CostPrices.newLine(CostLineKind.material, entry);
+      final schema = CostLineSchema.of(CostLineKind.material);
+
+      expect(line['unitPrice'], 4000);
+      expect(line['quantity'], 0);
+      expect(schema.costOf(line), 0);
+    });
+
+    test('المحروقات: سعر اللتر محفوظ والكمية صفر', () {
+      final entry = PriceEntry(
+        label: 'ديزل',
+        kind: CostLineKind.fuel,
+        price: 475,
+      );
+
+      final line = CostPrices.newLine(CostLineKind.fuel, entry);
+      final schema = CostLineSchema.of(CostLineKind.fuel);
+
+      expect(line['fuelType'], 'ديزل');
+      expect(line['pricePerLiter'], 475);
+      expect(schema.costOf(line), 0);
+    });
+
+    test('العمالة والمعدات: السعر ظاهر والتكلفة صفر', () {
+      for (final kind in const <CostLineKind>[
+        CostLineKind.labor,
+        CostLineKind.equipment,
+      ]) {
+        final entry = PriceEntry(label: 'سائق', kind: kind, price: 11500);
+        final line = CostPrices.newLine(kind, entry);
+        final schema = CostLineSchema.of(kind);
+
+        expect(schema.costOf(line), 0, reason: kind.name);
+        expect(CostPrices.priceOf(kind, line), 11500, reason: kind.name);
+      }
+    });
+
+    test('السطر المستورد بسعر بلا كميات لا يفشل التدقيق', () {
+      for (final kind in CostLineKind.values) {
+        final entry = PriceEntry(label: 'بند', kind: kind, price: 100);
+        final line = CostPrices.newLine(kind, entry);
+        final schema = CostLineSchema.of(kind);
+
+        expect(schema.validateLine(line, 0), isEmpty, reason: kind.name);
+      }
+    });
+  });
+
   group('CostPrices.matches — مطابقة سطر التحليل بسطر البند', () {
     test('مطابقة تامة أو احتواء', () {
       expect(CostPrices.matches('أسمنت', 'أسمنت'), isTrue);

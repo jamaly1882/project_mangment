@@ -231,11 +231,16 @@ class ItemPriceEditorPage extends StatefulWidget {
   final String projectId;
   final String itemName;
 
+  /// يفتح نافذة لصق جدول التحليل فور تحميل الأسطر.
+  /// يُستخدم في مسار: المشروع ← البند ← استيراد.
+  final bool openImportOnLoad;
+
   const ItemPriceEditorPage({
     super.key,
     required this.itemId,
     required this.projectId,
     this.itemName = '',
+    this.openImportOnLoad = false,
   });
 
   @override
@@ -356,6 +361,12 @@ class _ItemPriceEditorPageState extends State<ItemPriceEditorPage> {
         _actual = actual;
         _loading = false;
       });
+
+      if (widget.openImportOnLoad) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _openImport();
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
