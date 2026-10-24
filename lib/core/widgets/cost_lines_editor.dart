@@ -357,17 +357,8 @@ class CostLinesEditorController extends ChangeNotifier {
   }
 
   /// مفاتيح الكميات في القسم (التي منها تُحسب التكلفة).
-  static List<String> quantityKeysOf(CostLineKind kind) {
-    switch (kind) {
-      case CostLineKind.material:
-      case CostLineKind.fuel:
-        return const <String>['quantity'];
-      case CostLineKind.equipment:
-        return const <String>['count', 'quantity'];
-      case CostLineKind.labor:
-        return const <String>['count', 'duration'];
-    }
-  }
+  static List<String> quantityKeysOf(CostLineKind kind) =>
+      CostLineSchema.of(kind).quantityKeys;
 
   bool hasQuantity(int index) {
     if (index < 0 || index >= _rows.length) return false;

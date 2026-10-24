@@ -393,6 +393,19 @@ class CostLineSchema {
   }
 
   /// معادلة التكلفة لهذا القسم.
+  /// مفاتيح الكميات التي تُحسب منها تكلفة السطر.
+  List<String> get quantityKeys {
+    switch (kind) {
+      case CostLineKind.material:
+      case CostLineKind.fuel:
+        return const <String>['quantity'];
+      case CostLineKind.equipment:
+        return const <String>['count', 'quantity'];
+      case CostLineKind.labor:
+        return const <String>['count', 'duration'];
+    }
+  }
+
   double computedCost(Map<String, dynamic> line) {
     switch (kind) {
       case CostLineKind.material:

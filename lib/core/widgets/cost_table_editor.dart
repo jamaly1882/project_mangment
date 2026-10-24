@@ -30,6 +30,7 @@ class CostTableEditor extends StatefulWidget {
     this.trailingNote,
     this.onChanged,
     this.allowCustom = true,
+    this.quantitySelection = true,
   });
 
   final CostLineSchema schema;
@@ -42,6 +43,11 @@ class CostTableEditor extends StatefulWidget {
   final String? trailingNote;
   final VoidCallback? onChanged;
   final bool allowCustom;
+
+  /// معنى ✓:
+  ///   true  → السطر مستخدم وله كمية (صفحة المشرف).
+  ///   false → السطر مُدرج في البند بالاسم والسعر فقط (صفحة الجودة).
+  final bool quantitySelection;
 
   @override
   State<CostTableEditor> createState() => _CostTableEditorState();
@@ -118,7 +124,7 @@ class _CostTableEditorState extends State<CostTableEditor> {
             label: row.name,
             price: price > 0 ? price : row.amount,
             index: index,
-            selected: index >= 0 && _controller.hasQuantity(index),
+            selected: _isSelected(index),
             cost: index >= 0 ? _schema.costOf(lines[index]) : 0,
           );
         }(),
@@ -155,8 +161,7 @@ class _CostTableEditorState extends State<CostTableEditor> {
         .where((row) => _matchesQuery(row.name));
 
     for (final row in labels) {
-      final index = _controller.indexOfLabel(row.name);
-      if (index >= 0 && _controller.hasQuantity(index)) count++;
+      if (_isSelected(_controller.indexOfLabel(row.name))) count++;
     }
 
     return count;
@@ -181,7 +186,11 @@ class _CostTableEditorState extends State<CostTableEditor> {
         children: [
           AppSectionTitle(
             title: _schema.title,
-            subtitle: _schema.note.isEmpty ? null : _schema.note,
+            subtitle: <String>[
+              if (_schema.note.isNotEmpty) _schema.note,
+              '${UnitAnalysisSeed.rowsOf(_schema.kind).length} سطرًا · '
+                  'المختار: $_selectedCount',
+            ].join(' — '),
             icon: _schema.icon,
           ),
           AppSpacing.verticalSm,
@@ -389,7 +398,7 @@ class _CostTableEditorState extends State<CostTableEditor> {
           flex: 2,
           child: index >= 0
               ? _numberField(_controller.numberController(index, cell.key))
-              : const _EmptyCell(),
+              : _addCell(line),
         ),
       Expanded(
         flex: 2,
@@ -498,6 +507,20 @@ class _CostTableEditorState extends State<CostTableEditor> {
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  /// خلية سطر غير مُعلَّم: زر إضافة يعلّمه ويُظهر حقول الكمية.
+  Widget _addCell(_AnalysisLine line) {
+    return Center(
+      child: IconButton(
+        tooltip: 'إضافة السطر',
+        iconSize: 18,
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        icon: const Icon(Icons.add_circle_outline),
+        onPressed: () => _toggle(line, true),
       ),
     );
   }
@@ -652,11 +675,29 @@ class _CostTableEditorState extends State<CostTableEditor> {
     );
   }
 
+  /// هل السطر «مختار» حسب وضع الصفحة؟
+  bool _isSelected(int index) {
+    if (index < 0) return false;
+    if (!widget.quantitySelection) return true;
+
+    return _controller.hasQuantity(index);
+  }
+
   void _toggle(_AnalysisLine line, bool selected) {
     if (selected) {
-      _controller.selectLabel(line.label, line.price);
-    } else {
+      if (widget.quantitySelection) {
+        // المشرف: السطر يبدأ بكمية ١ فتظهر تكلفته.
+        _controller.selectLabel(line.label, line.price);
+      } else {
+        // الجودة: سطر بالسعر فقط، بلا كميات (المشرف يدخلها).
+        _controller.ensureLabel(line.label, line.price);
+      }
+    } else if (widget.quantitySelection) {
+      // إلغاء ✓ يصفّر الكمية ويُبقي الاسم والسعر.
       _controller.deselectLabel(line.label);
+    } else {
+      final index = _controller.indexOfLabel(line.label);
+      if (index >= 0) _controller.removeAt(index);
     }
 
     widget.onChanged?.call();
@@ -752,15 +793,4 @@ class _QuantityCell {
 
   final String key;
   final String label;
-}
-
-class _EmptyCell extends StatelessWidget {
-  const _EmptyCell();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: Text('—', style: AppTextStyles.small),
-    );
-  }
 }
