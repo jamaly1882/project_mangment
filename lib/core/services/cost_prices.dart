@@ -146,9 +146,14 @@ class CostPrices {
       if (cells.length >= 6) {
         // الترتيب في جدول التحليل:
         // المهنة | المصاريف | المعدة | الإهلاك | المحروقات/المادة | السعر
-        _addPair(entries, cells[0], cells[1]);
-        _addPair(entries, cells[2], cells[3]);
-        _addPair(entries, cells[4], cells[5]);
+        // القسم هنا يُؤخذ من العمود نفسه، لا من الكلمات:
+        //   • العمود الأول مهنة  → العمالة
+        //   • العمود الثالث معدة → المعدات
+        //   • العمود الخامس: الوقود فقط (ديزل/بترول/غاز/قاز/زيت) محروقات،
+        //     وكل ما سواه (ماء، حجر، رصيف، حديد، أسمنت…) مواد.
+        _addPair(entries, cells[0], cells[1], force: CostLineKind.labor);
+        _addPair(entries, cells[2], cells[3], force: CostLineKind.equipment);
+        _addPair(entries, cells[4], cells[5], fuelOrMaterial: true);
         continue;
       }
 
@@ -201,7 +206,13 @@ class CostPrices {
     return <String>[line];
   }
 
-  static void _addPair(List<PriceEntry> entries, String name, String price) {
+  static void _addPair(
+    List<PriceEntry> entries,
+    String name,
+    String price, {
+    CostLineKind? force,
+    bool fuelOrMaterial = false,
+  }) {
     final label = name.trim();
     if (label.isEmpty) return;
 
@@ -211,14 +222,25 @@ class CostPrices {
     final value = parsePrice(price);
     if (value == null) return;
 
+    final CostLineKind kind = force ??
+        (fuelOrMaterial
+            ? (isFuel(label) ? CostLineKind.fuel : CostLineKind.material)
+            : classify(label));
+
     entries.add(
       PriceEntry(
         label: label,
-        kind: classify(label),
+        kind: kind,
         price: value,
       ),
     );
   }
+
+  /// هل الاسم وقود؟ (ديزل / بترول / غاز / قاز / زيت)
+  ///
+  /// هذا هو الفاصل الوحيد داخل عمود «بيان المحروقات»: ما سواه مواد.
+  static bool isFuel(String label) =>
+      _containsAny(_normalize(label), _fuelWords);
 
   static bool _isHeader(String label) {
     final text = _normalize(label);
@@ -434,6 +456,161 @@ class CostPrices {
   /// قراءة السعر الحالي لسطر.
   static double priceOf(CostLineKind kind, Map<String, dynamic> line) =>
       CostLineSchema.number(line, priceKeyOf(kind));
+
+  // ============================================================
+  // استيراد أسعار على مستوى المشروع
+  // ============================================================
+
+  /// يطبّق جدول أسعار واحدًا على **كل بنود المشروع**.
+  ///
+  /// يبحث عن كل سطر تحليل في أسطر البنود (المخطط والفعلي) بمطابقة الاسم،
+  /// ويستبدل سعره. الأسطر التي لا مثيل لها تُرجَع في [unmatched] ليُضيفها
+  /// المدير يدويًا في بندها، لأن الجدول لا يحدد البند الذي تنتمي إليه.
+  static Future<ProjectPriceResult> applyToProject({
+    required String projectId,
+    required List<PriceEntry> entries,
+    required String userId,
+    String projectName = '',
+  }) async {
+    final firestore = FirebaseFirestore.instance;
+
+    final itemsSnapshot = await firestore
+        .collection('items')
+        .where('projectId', isEqualTo: projectId)
+        .get();
+
+    if (itemsSnapshot.docs.isEmpty) {
+      throw Exception('لا توجد بنود في هذا المشروع بعد.');
+    }
+
+    final batch = firestore.batch();
+    final matchedLabels = <String>{};
+    final logs = <Map<String, dynamic>>[];
+
+    var updatedLines = 0;
+    var itemsTouched = 0;
+
+    for (final doc in itemsSnapshot.docs) {
+      final item = doc.data();
+
+      final detailsDoc = await firestore
+          .collection('item_details')
+          .doc(doc.id)
+          .get();
+      final details = detailsDoc.data() ?? <String, dynamic>{};
+
+      final executed = ProjectCosts.nonNegative(item['executedQuantity']);
+      final quantity = executed > 0
+          ? executed
+          : ProjectCosts.nonNegative(item['contractQuantity']);
+      final unit = (item['unit'] ?? '').toString();
+
+      final plannedSource =
+          CostLines.fromData(details, contractQuantity: quantity, unit: unit)
+                  .isNotEmpty
+              ? details
+              : item;
+
+      final planned = CostLines.fromData(
+        plannedSource,
+        contractQuantity: quantity,
+        unit: unit,
+      );
+
+      final actual = CostLines.fromData(
+        details.isNotEmpty ? details : item,
+        actual: true,
+        contractQuantity: quantity,
+        unit: unit,
+      );
+
+      var itemUpdated = false;
+
+      for (final entry in entries) {
+        final schema = CostLineSchema.of(entry.kind);
+
+        for (final target in <CostLines>[planned, actual]) {
+          for (final line in target[entry.kind]) {
+            final label = CostLineSchema.text(line, schema.titleKey);
+
+            if (!matches(label, entry.label)) continue;
+
+            matchedLabels.add(entry.label);
+
+            final oldPrice = priceOf(entry.kind, line);
+
+            if (!applyPriceToLine(schema, line, entry.price)) continue;
+
+            updatedLines++;
+            itemUpdated = true;
+
+            if (logs.length < 120) {
+              logs.add(<String, dynamic>{
+                'itemId': doc.id,
+                'projectId': projectId,
+                'itemName': (item['name'] ?? '').toString(),
+                'kind': entry.kind.name,
+                'label': label,
+                'oldPrice': oldPrice,
+                'newPrice': entry.price,
+                'updatedBy': userId,
+                'createdAt': FieldValue.serverTimestamp(),
+              });
+            }
+          }
+        }
+      }
+
+      if (!itemUpdated) continue;
+
+      itemsTouched++;
+
+      final stamp = <String, dynamic>{
+        'priceUpdatedBy': userId,
+        'priceUpdatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      final plannedData = planned.toSaveData(contractQuantity: quantity);
+      final actualData = actual.toSaveData(
+        actual: true,
+        contractQuantity: quantity,
+      );
+
+      batch.set(
+        doc.reference,
+        <String, dynamic>{...plannedData, ...actualData, ...stamp},
+        SetOptions(merge: true),
+      );
+
+      batch.set(
+        firestore.collection('item_details').doc(doc.id),
+        <String, dynamic>{...plannedData, ...actualData, ...stamp},
+        SetOptions(merge: true),
+      );
+    }
+
+    for (final log in logs) {
+      batch.set(firestore.collection(logCollection).doc(), <String, dynamic>{
+        ...log,
+        if (projectName.isNotEmpty) 'projectName': projectName,
+      });
+    }
+
+    if (itemsTouched > 0) await batch.commit();
+
+    final unmatched = <String>[
+      for (final entry in entries)
+        if (!matchedLabels.contains(entry.label)) entry.label,
+    ];
+
+    return ProjectPriceResult(
+      updatedLines: updatedLines,
+      itemsTouched: itemsTouched,
+      totalItems: itemsSnapshot.docs.length,
+      unmatched: unmatched,
+    );
+  }
 }
 
 /// سطر مقروء من جدول التحليل مع القسم المستنتج.
@@ -462,4 +639,21 @@ class PriceChange {
   final String label;
   final double oldPrice;
   final double newPrice;
+}
+
+/// نتيجة استيراد أسعار على مستوى المشروع.
+class ProjectPriceResult {
+  const ProjectPriceResult({
+    required this.updatedLines,
+    required this.itemsTouched,
+    required this.totalItems,
+    required this.unmatched,
+  });
+
+  final int updatedLines;
+  final int itemsTouched;
+  final int totalItems;
+
+  /// أسطر التحليل التي لم يُعثر لها على بند مطابق في المشروع.
+  final List<String> unmatched;
 }

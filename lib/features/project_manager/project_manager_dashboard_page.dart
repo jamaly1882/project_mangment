@@ -69,8 +69,11 @@ class ProjectManagerDashboardPage extends StatelessWidget {
     Navigator.push(
       context,
       MaterialPageRoute(
+        // مهندس المشروع للعرض والإحصاءات فقط: الإدخال صلاحية
+        // مدير إدارة الجودة، وتسجيل الكميات صلاحية مشرف البند.
         builder: (_) => ItemsPage(
           projectId: projectId,
+          readOnly: true,
         ),
       ),
     );
