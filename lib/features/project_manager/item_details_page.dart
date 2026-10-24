@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/services/project_cost_sync.dart';
+import '../../core/services/project_team.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/utils/cost_lines.dart';
@@ -93,6 +94,12 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
 
   String? _selectedSupervisorId;
   String? _selectedSupervisorName;
+
+  /// هل مشرف البند مُسند تلقائيًا من ربط المشروع (لا اختيار يدوي)؟
+  bool _supervisorFromProject = false;
+
+  /// هل طلب المستخدم تغيير المشرف المقترح يدويًا؟
+  bool _showSupervisorPicker = false;
   String? _selectedEquipmentId;
   String? _selectedEquipmentCode;
   String? _selectedEquipmentWorkUnit;
@@ -251,6 +258,22 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           supervisorId.isEmpty ? null : supervisorId;
       _selectedSupervisorName =
           supervisorName.isEmpty ? null : supervisorName;
+
+      // إن لم يُحدد مشرف بعد: يُؤخذ المشرف المرتبط بالمشروع تلقائيًا،
+      // فلا يُطلب اختياره من جديد.
+      if (_selectedSupervisorId == null) {
+        final member = await ProjectTeam.supervisorForItem(
+          projectId: widget.projectId,
+          itemSupervisorId: _stringValue(itemData['supervisorId']),
+          itemSupervisorName: _stringValue(itemData['supervisorName']),
+        );
+
+        if (member != null) {
+          _selectedSupervisorId = member.id;
+          _selectedSupervisorName = member.displayName;
+          _supervisorFromProject = true;
+        }
+      }
 
       _contractQuantityController.text = ProjectCosts.toEditText(
         ProjectCosts.toDouble(itemData['contractQuantity']),
@@ -472,8 +495,29 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       return;
     }
     if (_selectedSupervisorId == null || _selectedSupervisorId!.isEmpty) {
-      AppWidgets.showWarning(context, 'يرجى تحديد مشرف البند');
-      return;
+      // محاولة أخيرة: المشرف المرتبط بالمشروع.
+      final member = await ProjectTeam.supervisorForItem(
+        projectId: widget.projectId,
+        itemSupervisorId: _stringValue(_itemData?['supervisorId']),
+        itemSupervisorName: _stringValue(_itemData?['supervisorName']),
+      );
+
+      if (member == null) {
+        AppWidgets.showWarning(
+          context,
+          'لا يوجد مشرف مرتبط بهذا المشروع. '
+          'اربط مشرف المشروع من إدارة المستخدمين أولًا.',
+        );
+        return;
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _selectedSupervisorId = member.id;
+        _selectedSupervisorName = member.displayName;
+        _supervisorFromProject = true;
+      });
     }
 
     // التحقق من أسطر التكلفة المدخلة.
@@ -998,6 +1042,72 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
     );
   }
 
+  /// قسم مشرف البند: يُعرض المشرف المرتبط بالمشروع جاهزًا،
+  /// ولا يُفتح الاختيار اليدوي إلا إذا طلب المستخدم تغييره أو تعدد
+  /// المشرفون المرتبطون بالمشروع.
+  Widget _buildSupervisorSection() {
+    if (_supervisorFromProject &&
+        !_showSupervisorPicker &&
+        _selectedSupervisorId != null) {
+      return AppCard(
+        color: AppColors.info.withValues(alpha: 0.07),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.supervisor_account_outlined,
+              color: AppColors.info,
+            ),
+            AppSpacing.horizontalSm,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'مشرف البند: ${_selectedSupervisorName ?? 'مشرف المشروع'}',
+                    style: AppTextStyles.body.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'مرتبط بالمشروع مسبقًا — لا حاجة لاختياره.',
+                    style: AppTextStyles.small,
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                setState(() => _showSupervisorPicker = true);
+              },
+              child: const Text('تغيير'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildSupervisorDropdown(),
+        if (_showSupervisorPicker) ...[
+          AppSpacing.verticalXs,
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              onPressed: () {
+                setState(() => _showSupervisorPicker = false);
+              },
+              icon: const Icon(Icons.undo_outlined),
+              label: const Text('رجوع إلى مشرف المشروع'),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   Widget _buildSupervisorDropdown() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _supervisorsStream(),
@@ -1055,6 +1165,7 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
               _selectedSupervisorId = id;
               _selectedSupervisorName =
                   jobNumber.isEmpty ? name : '$name - $jobNumber';
+              _supervisorFromProject = false;
             });
           },
         );
@@ -1531,7 +1642,8 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           ),
           AppSpacing.verticalSm,
           const Text(
-            'اختر المعدة من حصر المعدات، ثم مشرف البند. الاستهلاك المخطط '
+            'اختر المعدة من حصر المعدات؛ ومشرف البند مرتبط بالمشروع '
+            'مسبقًا فيُسند إليه البند تلقائيًا ما لم تُغيّره. الاستهلاك المخطط '
             '(الوقود والزيت وساعات العمل) لم يعد يُدخل هنا: يُسجَّل أسطرًا في '
             'قسم «تكلفة استهلاك المحروقات» ضمن تكاليف البند، ويسجّل مشرف '
             'البند المستهلك الفعلي من صفحته، ويسجّل المهندس كمية البند '
@@ -1541,7 +1653,7 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           AppSpacing.verticalMd,
           _buildEquipmentDropdown(),
           AppSpacing.verticalMd,
-          _buildSupervisorDropdown(),
+          _buildSupervisorSection(),
           AppSpacing.verticalMd,
           Container(
             padding: const EdgeInsets.all(12),

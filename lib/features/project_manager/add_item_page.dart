@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants/previous_prices.dart';
 import '../../core/services/project_cost_sync.dart';
+import '../../core/services/project_team.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
 import '../../core/utils/costs.dart';
@@ -46,6 +47,13 @@ class _AddItemPageState extends State<AddItemPage> {
   String? _selectedEngineerId;
   String? _selectedEngineerName;
 
+  /// مهندس المشروع كما هو مربوط في المشروع (يُقرأ تلقائيًا).
+  ProjectMember? _projectEngineer;
+
+  /// مشرف المشروع المرتبط — لا يُطلب اختياره، يُحفظ مع البند ويُسند
+  /// إليه البند تلقائيًا في صفحة التفاصيل.
+  ProjectMember? _projectSupervisor;
+
   String? _selectedEquipmentId;
   String? _selectedEquipmentCode;
   String? _selectedEquipmentName;
@@ -83,6 +91,26 @@ class _AddItemPageState extends State<AddItemPage> {
   void initState() {
     super.initState();
     _loadProjectName();
+    _loadProjectTeam();
+  }
+
+  /// يقرأ مهندس المشروع ومشرفه من ربط المستخدمين بالمشروع،
+  /// فلا حاجة لاختيارهما يدويًا عند إدخال البند.
+  Future<void> _loadProjectTeam() async {
+    final engineer = await ProjectTeam.singleEngineer(widget.projectId);
+    final supervisor = await ProjectTeam.singleSupervisor(widget.projectId);
+
+    if (!mounted) return;
+
+    setState(() {
+      _projectEngineer = engineer;
+      _projectSupervisor = supervisor;
+
+      if (engineer != null && (_selectedEngineerId ?? '').isEmpty) {
+        _selectedEngineerId = engineer.id;
+        _selectedEngineerName = engineer.name;
+      }
+    });
   }
 
   @override
@@ -186,10 +214,9 @@ class _AddItemPageState extends State<AddItemPage> {
       _selectedUnit != null &&
       _selectedUnit!.trim().isNotEmpty;
 
-  bool get _canSelectEquipment =>
-      _canSelectEngineer &&
-      _selectedEngineerId != null &&
-      _selectedEngineerId!.trim().isNotEmpty;
+  /// المعدة تُتاح بعد اختيار النوع؛ لم يبقَ شرط اختيار المهندس
+  /// لأنه يُقرأ تلقائيًا من ربط المشروع.
+  bool get _canSelectEquipment => _canSelectEngineer;
 
   bool get _canSave =>
       _canSelectEquipment &&
@@ -435,6 +462,93 @@ class _AddItemPageState extends State<AddItemPage> {
     );
   }
 
+  /// قسم المهندس والمشرف: يُقرآن من ربط المشروع، فلا يُطلبان يدويًا.
+  Widget _buildTeamSection() {
+    final engineer = _projectEngineer;
+    final supervisor = _projectSupervisor;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (engineer != null)
+          AppCard(
+            color: AppColors.success.withValues(alpha: 0.07),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.engineering_outlined,
+                  color: AppColors.success,
+                ),
+                AppSpacing.horizontalSm,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'مهندس المشروع: ${engineer.displayName}',
+                        style: AppTextStyles.body.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'مرتبط بالمشروع مسبقًا — لا حاجة لاختياره.',
+                        style: AppTextStyles.small,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          _buildEngineerDropdown(),
+
+        AppSpacing.verticalSm,
+
+        if (supervisor != null)
+          AppCard(
+            color: AppColors.info.withValues(alpha: 0.07),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.supervisor_account_outlined,
+                  color: AppColors.info,
+                ),
+                AppSpacing.horizontalSm,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'مشرف المشروع: ${supervisor.displayName}',
+                        style: AppTextStyles.body.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'سيُسند إليه هذا البند تلقائيًا عند حفظ التفاصيل.',
+                        style: AppTextStyles.small,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          const AppCard(
+            color: AppColors.warning,
+            child: Text(
+              'لا يوجد مشرف مرتبط بهذا المشروع بعد. '
+              'اربط مشرف المشروع من إدارة المستخدمين ليُسند إليه البند تلقائيًا.',
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _buildEngineerDropdown() {
     if (!_canSelectEngineer) {
       return AppCard(
@@ -561,7 +675,7 @@ class _AddItemPageState extends State<AddItemPage> {
             AppSpacing.horizontalSm,
             const Expanded(
               child: Text(
-                'اختر المهندس أولاً لتحديد المعدة.',
+                'أكمل بيانات البند والكمية والوحدة أولاً لتحديد المعدة.',
                 style: AppTextStyles.bodySecondary,
               ),
             ),
@@ -791,6 +905,11 @@ class _AddItemPageState extends State<AddItemPage> {
       await _loadProjectName();
     }
 
+    if (_projectEngineer == null && _projectSupervisor == null) {
+      await _loadProjectTeam();
+      if (!mounted) return;
+    }
+
     if (!mounted) return;
 
     setState(() {
@@ -823,8 +942,12 @@ class _AddItemPageState extends State<AddItemPage> {
             _selectedPreviousPrice! > 0)
           'previousPriceSource': previousPricesSource,
 
-        'engineerId': _selectedEngineerId,
-        'engineerName': _selectedEngineerName,
+        // المهندس والمشرف يُقرآن من ربط المشروع، فلا يُطلبان يدويًا.
+        'engineerId': _selectedEngineerId ?? _projectEngineer?.id,
+        'engineerName': _selectedEngineerName ?? _projectEngineer?.name,
+        'supervisorId': _projectSupervisor?.id,
+        'supervisorName': _projectSupervisor?.name,
+        'supervisorLinkedToProject': _projectSupervisor != null,
 
         'equipmentId': _selectedEquipmentId,
         'equipmentCode': _selectedEquipmentCode,
@@ -1097,12 +1220,15 @@ class _AddItemPageState extends State<AddItemPage> {
               AppSpacing.verticalLg,
 
               const AppSectionTitle(
-                title: 'المهندس',
-                icon: Icons.engineering_outlined,
+                title: 'المهندس والمشرف',
+                icon: Icons.groups_outlined,
+                subtitle:
+                    'يُقرآن من ربط المشروع: المهندس والمشرف مضافان '
+                    'إلى المشروع مسبقًا فلا حاجة لاختيارهما.',
               ),
               AppSpacing.verticalSm,
               _canSelectEngineer
-                  ? _buildEngineerDropdown()
+                  ? _buildTeamSection()
                   : _buildLockedInfo(
                       'أكمل بيانات البند والكمية والوحدة أولاً.',
                     ),
@@ -1117,7 +1243,7 @@ class _AddItemPageState extends State<AddItemPage> {
               _canSelectEquipment
                   ? _buildEquipmentDropdown()
                   : _buildLockedInfo(
-                      'اختر المهندس أولاً لتتمكن من اختيار المعدة.',
+                      'أكمل بيانات البند والكمية والوحدة أولاً لتتمكن من اختيار المعدة.',
                     ),
 
               AppSpacing.verticalLg,
