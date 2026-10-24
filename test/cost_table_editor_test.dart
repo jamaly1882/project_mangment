@@ -279,4 +279,110 @@ void main() {
       expect(fields, isNotEmpty);
     });
   });
+
+  group('وضع «ابحث وأضف»', () {
+    test('السطر المعبأ تلقائيًا غير مُعلَّم افتراضيًا', () {
+      final seeded = buildCostLine(
+        kind: CostLineKind.material,
+        label: 'أسمنت',
+        price: 4000,
+      );
+
+      expect(seeded[CostLineSchema.pickedKey], isNull);
+
+      final picked = buildCostLine(
+        kind: CostLineKind.material,
+        label: 'أسمنت',
+        price: 4000,
+        picked: true,
+      );
+
+      expect(picked[CostLineSchema.pickedKey], isTrue);
+    });
+
+    testWidgets('القسم يبدأ فارغًا، والبحث يكشف الاسم ويضيفه',
+        (tester) async {
+      final schema = CostLineSchema.of(CostLineKind.material);
+      final controller = CostLinesEditorController(schema);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: CostTableEditor(
+                schema: schema,
+                controller: controller,
+                priceEditable: true,
+                quantitySelection: false,
+                searchFirst: true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // لا جدول كامل: لا صناديق ✓ في البداية.
+      expect(find.byType(Checkbox), findsNothing);
+      expect(find.textContaining('لا توجد أسطر بعد'), findsOneWidget);
+      expect(find.text('أسمنت'), findsNothing);
+
+      final search = find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            (widget.decoration?.hintText ?? '').contains('ابحث'),
+      );
+
+      await tester.enterText(search, 'حديد');
+      await tester.pumpAndSettle();
+
+      expect(find.text('حديد G40'), findsOneWidget);
+      expect(find.text('أسمنت'), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.add_circle_outline).first);
+      await tester.pumpAndSettle();
+
+      expect(controller.count, 1);
+      expect(controller.textOf(0, 'materialName'), 'حديد G40');
+      expect(controller.isPicked(0), isTrue);
+      expect(find.byType(Checkbox), findsOneWidget);
+
+      // إلغاء ✓ يُخفي السطر ويُبقي سعره محفوظًا.
+      await tester.tap(find.byType(Checkbox).first);
+      await tester.pumpAndSettle();
+
+      expect(controller.count, 1, reason: 'السطر يبقى محفوظًا');
+      expect(controller.isPicked(0), isFalse);
+      expect(controller.textOf(0, 'unitPrice'), '400000');
+    });
+
+    testWidgets('زر «عرض كل الأسطر» يكشف جدول التحليل', (tester) async {
+      final schema = CostLineSchema.of(CostLineKind.fuel);
+      final controller = CostLinesEditorController(schema);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: CostTableEditor(
+                schema: schema,
+                controller: controller,
+                priceEditable: true,
+                quantitySelection: false,
+                searchFirst: true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.textContaining('عرض كل الأسطر'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(Checkbox), findsNWidgets(4));
+    });
+  });
 }

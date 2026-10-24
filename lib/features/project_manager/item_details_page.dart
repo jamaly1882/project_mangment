@@ -1596,8 +1596,10 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
             priceEditable: true,
             // إلغاء ✓ هنا يُزيل السطر من مخطط البند وتكليف المشرف.
             quantitySelection: false,
-            trailingNote: 'علّم ✓ على الأسطر التي يستخدمها البند؛ '
-                'وإلغاء ✓ يُزيل السطر. الكمية والسعر يُدخلان في الجدول.',
+            // القسم يبدأ فارغًا: ابحث بالاسم ثم أضف السطر.
+            searchFirst: true,
+            trailingNote: 'ابحث بالاسم ثم اضغط ＋ لإضافة السطر. '
+                'إلغاء ✓ يُخفي السطر من الجدول ويُبقي سعره محفوظًا.',
             onChanged: () {
               if (mounted) setState(() {});
             },
