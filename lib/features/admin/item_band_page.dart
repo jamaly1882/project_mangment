@@ -86,6 +86,11 @@ class _ItemBandPageState extends State<ItemBandPage> {
       text: doc?.data()?['name']?.toString() ?? '',
     );
 
+    // كود البند في الترميز الهرمي: rd_01 / rd_02 / rd_03 …
+    final codeController = TextEditingController(
+      text: doc?.data()?['code']?.toString() ?? '',
+    );
+
     final formKey = GlobalKey<FormState>();
 
     final bool isEditing = doc != null;
@@ -113,28 +118,55 @@ class _ItemBandPageState extends State<ItemBandPage> {
             ),
 
             content: SizedBox(
-              width: 450,
+              width: 480,
               child: Form(
                 key: formKey,
-                child: TextFormField(
-                  controller: controller,
-                  autofocus: true,
-                  textInputAction: TextInputAction.done,
-                  decoration: const InputDecoration(
-                    labelText: 'اسم البند',
-                    hintText: 'مثال: أعمال الحفر',
-                    prefixIcon: Icon(
-                      Icons.category_outlined,
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value == null ||
-                        value.trim().isEmpty) {
-                      return 'أدخل اسم البند';
-                    }
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextFormField(
+                      controller: controller,
+                      autofocus: true,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'اسم البند',
+                        hintText: 'مثال: أعمال الحفر',
+                        prefixIcon: Icon(
+                          Icons.category_outlined,
+                        ),
+                      ),
+                      validator: (value) {
+                        if (value == null ||
+                            value.trim().isEmpty) {
+                          return 'أدخل اسم البند';
+                        }
 
-                    return null;
-                  },
+                        return null;
+                      },
+                    ),
+                    AppSpacing.verticalSm,
+                    TextFormField(
+                      controller: codeController,
+                      textDirection: TextDirection.ltr,
+                      textInputAction: TextInputAction.done,
+                      decoration: const InputDecoration(
+                        labelText: 'كود البند',
+                        hintText: 'rd_01',
+                        prefixIcon: Icon(Icons.tag_outlined),
+                        helperText:
+                            'rd الطرق · bd المباني · dd السدود — ثم رقم البند',
+                      ),
+                      validator: (value) {
+                        final text = (value ?? '').trim();
+                        if (text.isEmpty) return null;
+                        if (!bandCodePattern.hasMatch(text)) {
+                          return 'الصيغة: rd_01';
+                        }
+                        return null;
+                      },
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -169,6 +201,9 @@ class _ItemBandPageState extends State<ItemBandPage> {
                   final String name =
                       controller.text.trim();
 
+                  final String code =
+                      codeController.text.trim();
+
                   try {
                     // ==================================================
                     // التأكد من عدم التكرار
@@ -200,6 +235,29 @@ class _ItemBandPageState extends State<ItemBandPage> {
                       return;
                     }
 
+                    // منع تكرار كود البند.
+                    if (code.isNotEmpty) {
+                      final codeSnapshot =
+                          await items.where('code', isEqualTo: code).get();
+
+                      final bool codeTaken = codeSnapshot.docs.any(
+                        (item) => item.id != doc?.id,
+                      );
+
+                      if (codeTaken) {
+                        if (!dialogContext.mounted) {
+                          return;
+                        }
+
+                        AppWidgets.showWarning(
+                          dialogContext,
+                          'الكود $code مستخدم لبند آخر',
+                        );
+
+                        return;
+                      }
+                    }
+
                     // ==================================================
                     // إضافة بند جديد
                     // ==================================================
@@ -209,6 +267,7 @@ class _ItemBandPageState extends State<ItemBandPage> {
                           Map<String, dynamic>> newDoc =
                           await items.add({
                         'name': name,
+                        'code': code.isEmpty ? null : code,
                         'active': true,
                         'createdAt':
                             FieldValue.serverTimestamp(),
@@ -238,6 +297,7 @@ class _ItemBandPageState extends State<ItemBandPage> {
 
                     await doc.reference.update({
                       'name': name,
+                      'code': code.isEmpty ? null : code,
                       'updatedAt':
                           FieldValue.serverTimestamp(),
                     });
@@ -279,6 +339,7 @@ class _ItemBandPageState extends State<ItemBandPage> {
     // ==========================================================
 
     controller.dispose();
+    codeController.dispose();
 
     // ==========================================================
     // إلغاء
@@ -485,7 +546,10 @@ class _ItemBandPageState extends State<ItemBandPage> {
                     .toLowerCase() ??
                 '';
 
-        return name.contains(search);
+        final String code =
+            (data['code'] ?? '').toString().toLowerCase();
+
+        return name.contains(search) || code.contains(search);
       },
     ).toList();
   }
@@ -533,8 +597,11 @@ class _ItemBandPageState extends State<ItemBandPage> {
           '• ${PreviousPrices.bandsCount} بنود (أقسام أعمال).\n'
           '• ${PreviousPrices.typesCount} نوعًا، منها '
           '${PreviousPrices.pricedTypesCount} بسعر سابق محدد.\n\n'
-          'لا يتم حذف أو تعديل أي بند أو نوع موجود مسبقًا، '
-          'ولا يتكرر النوع إذا كان كوده موجودًا.',
+          'الترميز: البند rd_01 / rd_02 / rd_03، '
+          'والنوع rd_0101 … حسب ترتيبه في الملف.\n\n'
+          'لا يتم حذف أي بند أو نوع، ولا تتكرر الأنواع، '
+          'والأنواع القديمة بأكواد رقمية تُعاد ترميزها إلى الصيغة الجديدة '
+          'مع الحفاظ على الاسم والوحدة والسعر.',
       confirmText: 'بدء الاستيراد',
     );
 
@@ -639,6 +706,12 @@ class _ItemBandPageState extends State<ItemBandPage> {
                     value: '${summary.typesSkipped}',
                     icon: Icons.remove_circle_outline,
                   ),
+                  if (summary.typesRenumbered > 0)
+                    AppInfoRow(
+                      label: 'أنواع أُعيد ترميزها',
+                      value: '${summary.typesRenumbered}',
+                      icon: Icons.tag_outlined,
+                    ),
                   if (summary.failed > 0)
                     AppInfoRow(
                       label: 'عمليات فشلت',
@@ -675,7 +748,10 @@ class _ItemBandPageState extends State<ItemBandPage> {
     setState(() {});
     AppWidgets.showSuccess(
       context,
-      'تم الاستيراد: ${summary.typesCreated} نوعًا جديدًا.',
+      summary.typesCreated == 0 && summary.typesRenumbered == 0
+          ? 'كل البنود والأنواع موجودة ومُرمَّزة بالفعل.'
+          : 'تم الاستيراد: ${summary.typesCreated} جديد، '
+              '${summary.typesRenumbered} أُعيد ترميزه.',
     );
   }
 
@@ -1032,6 +1108,9 @@ class _ItemBandPageState extends State<ItemBandPage> {
 
                         // إن كان البند مستوردًا من خلاصة 1447هـ نعرض
                         // عدد أنواعه ونطاق أسعاره السابقة.
+                        final String bandCode =
+                            (data['code'] ?? '').toString().trim();
+
                         final String bandKey =
                             (data['previousPriceBandKey'] ??
                                     '')
@@ -1062,6 +1141,7 @@ class _ItemBandPageState extends State<ItemBandPage> {
                         return _ItemCard(
                           name: name,
                           active: active,
+                          code: bandCode.isEmpty ? null : bandCode,
                           detailText: detailText,
 
                           // ==========================================
@@ -1127,6 +1207,9 @@ class _ItemCard extends StatelessWidget {
   final String name;
   final bool active;
 
+  /// كود البند في الترميز الهرمي (rd_01).
+  final String? code;
+
   /// سطر معلومات إضافي (مثل عدد الأنواع المستوردة ونطاق أسعار 1447هـ).
   final String? detailText;
 
@@ -1138,6 +1221,7 @@ class _ItemCard extends StatelessWidget {
   const _ItemCard({
     required this.name,
     required this.active,
+    this.code,
     this.detailText,
     required this.onTypes,
     required this.onEdit,
@@ -1209,14 +1293,25 @@ class _ItemCard extends StatelessWidget {
                         height: 7,
                       ),
 
-                      AppStatusBadge(
-                        text: active
-                            ? 'نشط'
-                            : 'معطل',
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          AppStatusBadge(
+                            text: active
+                                ? 'نشط'
+                                : 'معطل',
 
-                        color: active
-                            ? AppColors.success
-                            : AppColors.danger,
+                            color: active
+                                ? AppColors.success
+                                : AppColors.danger,
+                          ),
+                          if (code != null)
+                            AppStatusBadge(
+                              text: code!,
+                              color: AppColors.info,
+                            ),
+                        ],
                       ),
 
                       if (detailText != null) ...[

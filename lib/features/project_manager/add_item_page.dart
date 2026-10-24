@@ -56,7 +56,7 @@ class _AddItemPageState extends State<AddItemPage> {
 
   /// السعر السابق (1447هـ) للنوع المختار — يُقترح تلقائيًا.
   double? _selectedPreviousPrice;
-  int? _selectedPreviousPriceCode;
+  String? _selectedPreviousPriceCode;
   String _selectedPreviousPriceYear = '';
 
   bool _saving = false;
@@ -114,9 +114,9 @@ class _AddItemPageState extends State<AddItemPage> {
 
   /// الوحدة المقترحة للنوع بناءً على كوده في خلاصة أسعار 1447هـ
   /// أو على كلمات وصف النوع (كيلومتر، متر طولي، طن …).
-  String? _unitFromPreviousType(String typeName, int? code) {
-    if (code != null) {
-      final previousType = PreviousPrices.findByCode(code);
+  String? _unitFromPreviousType(String typeName, String? code) {
+    if (code != null && code.isNotEmpty) {
+      final previousType = PreviousPrices.findByAnyCode(code);
       if (previousType != null) return previousType.appUnit;
     }
 
@@ -382,7 +382,7 @@ class _AddItemPageState extends State<AddItemPage> {
 
             String typeName = '';
             double? previousPrice;
-            int? previousCode;
+            String? previousCode;
             String previousYear = '';
 
             if (subcollectionDocs.isNotEmpty) {
@@ -399,9 +399,8 @@ class _AddItemPageState extends State<AddItemPage> {
               }
 
               final rawCode = data['code'] ?? data['previousPriceCode'];
-              previousCode = rawCode is num
-                  ? rawCode.toInt()
-                  : int.tryParse(rawCode?.toString() ?? '');
+              final codeText = rawCode?.toString().trim() ?? '';
+              previousCode = codeText.isEmpty ? null : codeText;
 
               previousYear = _text(data['previousPriceYear']);
             } else {

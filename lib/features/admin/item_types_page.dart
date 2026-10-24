@@ -147,17 +147,17 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
                           Expanded(
                             child: TextFormField(
                               controller: codeController,
-                              keyboardType: TextInputType.number,
+                              textDirection: TextDirection.ltr,
                               decoration: const InputDecoration(
-                                labelText: 'كود البند (1447هـ)',
-                                hintText: 'مثال: 12',
+                                labelText: 'كود النوع',
+                                hintText: 'rd_0101',
                                 prefixIcon: Icon(Icons.tag_outlined),
                               ),
                               validator: (value) {
                                 final text = (value ?? '').trim();
                                 if (text.isEmpty) return null;
-                                if (int.tryParse(text) == null) {
-                                  return 'الكود يجب أن يكون رقمًا';
+                                if (!typeCodePattern.hasMatch(text)) {
+                                  return 'الصيغة: rd_0101';
                                 }
                                 return null;
                               },
@@ -235,8 +235,7 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
 
                   final String name = controller.text.trim();
                   final String codeText = codeController.text.trim();
-                  final int? code =
-                      codeText.isEmpty ? null : int.tryParse(codeText);
+                  final String? code = codeText.isEmpty ? null : codeText;
                   final String priceText = previousPriceController.text
                       .trim()
                       .replaceAll('٫', '.')
@@ -290,7 +289,7 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
 
                         AppWidgets.showWarning(
                           context,
-                          'كود البند $code مستخدم لنوع آخر في هذا البند',
+                          'الكود $code مستخدم لنوع آخر في هذا البند',
                         );
 
                         return;
@@ -303,7 +302,6 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
 
                     final priceFields = <String, dynamic>{
                       'code': code,
-                      'previousPriceCode': code,
                       'unit': selectedUnit,
                       'previousPrice': previousPrice,
                       'previousPriceYear': previousPricesYear,
@@ -888,11 +886,11 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
 
                         final bool active = data['active'] != false;
 
-                        final rawCode =
-                            data['code'] ?? data['previousPriceCode'];
-                        final int? code = rawCode is num
-                            ? rawCode.toInt()
-                            : int.tryParse(rawCode?.toString() ?? '');
+                        final String code = (data['code'] ??
+                                data['previousPriceCode'] ??
+                                '')
+                            .toString()
+                            .trim();
 
                         final String unit =
                             (data['unit'] ?? '').toString().trim();
@@ -904,7 +902,7 @@ class _ItemTypesPageState extends State<ItemTypesPage> {
                         return _TypeCard(
                           name: name,
                           active: active,
-                          code: code,
+                          code: code.isEmpty ? null : code,
                           unit: unit,
                           previousPrice: previousPrice,
                           onEdit: () {
@@ -941,8 +939,8 @@ class _TypeCard extends StatelessWidget {
   final String name;
   final bool active;
 
-  /// كود البند في خلاصة أسعار 1447هـ (إن وُجد).
-  final int? code;
+  /// كود النوع في الترميز الهرمي (rd_0101) أو الكود القديم (12).
+  final String? code;
 
   /// وحدة البند (م3، م2، م.ط …).
   final String unit;

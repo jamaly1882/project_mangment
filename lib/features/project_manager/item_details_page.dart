@@ -48,7 +48,7 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   /// سعر سابق (1447هـ) لهذا النوع — مرجع من خلاصة الأسعار.
   double? _previousPrice;
   String _previousPriceYear = previousPricesYear;
-  int? _previousPriceCode;
+  String? _previousPriceCode;
 
   /// قائمة الوحدات المعروضة (تشمل أي وحدة قديمة محفوظة في البند).
   List<String> _knownUnits = <String>[];
@@ -1071,7 +1071,7 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   Future<void> _loadPreviousPrice(Map<String, dynamic> itemData) async {
     double? price = _toDouble(itemData['previousPrice']);
     String year = _stringValue(itemData['previousPriceYear']);
-    int? code = _toDouble(itemData['previousPriceCode'])?.toInt();
+    String? code = _stringValue(itemData['previousPriceCode']);
 
     if (price == null || price <= 0) {
       final definitionId = _stringValue(itemData['itemDefinitionId']);
@@ -1091,7 +1091,7 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           if (data != null) {
             price = _toDouble(data['previousPrice']);
             year = _stringValue(data['previousPriceYear']);
-            code = _toDouble(data['code'] ?? data['previousPriceCode'])?.toInt();
+            code = _stringValue(data['code'] ?? data['previousPriceCode']);
           }
         } catch (e) {
           debugPrint('تعذر قراءة سعر 1447هـ لنوع البند: $e');
@@ -1109,13 +1109,15 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           : PreviousPrices.findByCode(itemCode);
       if (fromList != null && fromList.hasPrice) {
         price = fromList.price;
-        code ??= fromList.code;
+        code ??= PreviousPrices.bandOfCode(fromList.code) != null
+            ? PreviousPrices.bandOfCode(fromList.code)!.typeCodeOf(fromList)
+            : fromList.code.toString();
       }
     }
 
     _previousPrice = price;
     _previousPriceYear = year.trim().isEmpty ? previousPricesYear : year;
-    _previousPriceCode = code;
+    _previousPriceCode = (code == null || code.trim().isEmpty) ? null : code.trim();
   }
 
   /// عدد الأسطر التي لا تحتوي سعر وحدة بعد.

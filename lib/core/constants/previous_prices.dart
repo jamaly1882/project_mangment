@@ -9,8 +9,14 @@ import 'package:flutter/material.dart';
 // من ملف: الانتاجية اليومية والانتاجية لكل وحدة عمل - الاحتياطية.
 //
 // التقسيم المتفق عليه:
-//   • البند (item_definitions) = قسم الأعمال (ترابية / إسفلتية / إنشائية)
+//   • البند (item_definitions) = قسم الأعمال (ترابية / إنشائية / إسفلتية)
 //   • النوع (item_definitions/{band}/types) = سطر مرقّم بسعره ووحدته
+//
+// الترميز الهرمي (المشروع → البند → النوع):
+//   المشروع   rd_01 طرق · bd_01 مباني · dd_01 سدود
+//   البند     rd_01 الأعمال الترابية · rd_02 الإنشائية · rd_03 الإسفلتية
+//   النوع     كود البند + رقمين: rd_0101 … rd_0119، rd_0201 … rd_0220،
+//             rd_0301 … rd_0332 (الترتيب = ترتيب السطر في ملف 1447هـ).
 //
 // كل نوع يحمل:
 //   code            كود البند في خلاصة 1447هـ
@@ -44,6 +50,12 @@ const List<String> previousTypeUnits = <String>[
   'م3*كم',
   'طن*كم',
 ];
+
+/// نمط كود النوع في الترميز الهرمي: rd_0101 (ويُقبل الكود الرقمي القديم 12).
+final RegExp typeCodePattern = RegExp(r'^(?:[a-z]{2}_[0-9]{2,4}|[0-9]{1,4})$');
+
+/// نمط كود البند في الترميز الهرمي: rd_01.
+final RegExp bandCodePattern = RegExp(r'^[a-z]{2}_[0-9]{2}$');
 
 /// نوع بند واحد من خلاصة أسعار 1447هـ.
 class PreviousPriceType {
@@ -91,6 +103,7 @@ class PreviousPriceType {
 class PreviousPriceBand {
   const PreviousPriceBand({
     required this.key,
+    required this.code,
     required this.name,
     required this.description,
     required this.icon,
@@ -99,6 +112,9 @@ class PreviousPriceBand {
 
   /// معرّف ثابت يُخزَّن في وثيقة البند باسم previousPriceBandKey.
   final String key;
+
+  /// كود البند في الترميز الهرمي (rd_01 / rd_02 / rd_03).
+  final String code;
 
   /// اسم القسم، ويُكتب كاسم البند في item_definitions عند الاستيراد.
   final String name;
@@ -112,6 +128,20 @@ class PreviousPriceBand {
   int get typesCount => types.length;
 
   int get pricedTypesCount => types.where((type) => type.hasPrice).length;
+
+  /// كود النوع = كود البند + رقمين حسب ترتيب السطر (rd_0101).
+  String typeCodeAt(int index) => '$code${(index + 1).toString().padLeft(2, '0')}';
+
+  /// كود نوع محدد داخل هذا البند.
+  String typeCodeOf(PreviousPriceType type) {
+    final index = types.indexOf(type);
+    return index < 0 ? code : typeCodeAt(index);
+  }
+
+  /// كل أكواد أنواع هذا البند بالترتيب.
+  List<String> get typeCodes => <String>[
+        for (var index = 0; index < types.length; index++) typeCodeAt(index),
+      ];
 
   /// أقل وأعلى سعر في القسم (للعرض المختصر).
   (double, double)? get priceRange {
@@ -131,6 +161,7 @@ class PreviousPriceBand {
 const List<PreviousPriceBand> previousPriceBands = <PreviousPriceBand>[
   PreviousPriceBand(
     key: 'terrain',
+    code: 'rd_01',
     name: 'الأعمال الترابية',
     description: 'أعمال القطع والردم والمسح وتسوية الشوارع والبردورات',
     icon: Icons.landscape_outlined,
@@ -253,6 +284,7 @@ const List<PreviousPriceBand> previousPriceBands = <PreviousPriceBand>[
   ),
   PreviousPriceBand(
     key: 'asphalt',
+    code: 'rd_03',
     name: 'الأعمال الإسفلتية',
     description: 'القص والقشط والخلطات الإسفلتية والمعالجة والترميم واللوحات التعريفية',
     icon: Icons.route_outlined,
@@ -453,6 +485,7 @@ const List<PreviousPriceBand> previousPriceBands = <PreviousPriceBand>[
   ),
   PreviousPriceBand(
     key: 'structural',
+    code: 'rd_02',
     name: 'الأعمال الإنشائية',
     description: 'الحفر الإنشائي والبناء بالحجر والخرسانة المسلحة وحديد التسليح',
     icon: Icons.foundation_outlined,
@@ -596,13 +629,47 @@ class PreviousPrices {
   static int get pricedTypesCount =>
       allTypes.where((type) => type.hasPrice).length;
 
-  /// البحث عن نوع بكوده.
+  /// البحث عن نوع بكوده القديم (الرقم في ملف 1447هـ).
   static PreviousPriceType? findByCode(int code) {
     for (final type in allTypes) {
       if (type.code == code) return type;
     }
     return null;
   }
+
+  /// البحث عن نوع بأي كود: القديم الرقمي (1–71) أو الجديد (rd_0101).
+  static PreviousPriceType? findByAnyCode(Object? code) {
+    if (code == null) return null;
+
+    final text = code.toString().trim();
+    if (text.isEmpty) return null;
+
+    final numeric = int.tryParse(text);
+    if (numeric != null) return findByCode(numeric);
+
+    for (final band in previousPriceBands) {
+      for (var index = 0; index < band.types.length; index++) {
+        if (band.typeCodeAt(index) == text) return band.types[index];
+      }
+    }
+
+    return null;
+  }
+
+  /// البند الذي يحمل هذا الكود (rd_01 / rd_02 / rd_03).
+  static PreviousPriceBand? bandByCode(String code) {
+    for (final band in previousPriceBands) {
+      if (band.code == code) return band;
+    }
+    return null;
+  }
+
+  /// خريطة الكود القديم → الكود الجديد لكل الأنواع (لإعادة الترميز).
+  static Map<int, String> get renumberMap => <int, String>{
+        for (final band in previousPriceBands)
+          for (var index = 0; index < band.types.length; index++)
+            band.types[index].code: band.typeCodeAt(index),
+      };
 
   /// البحث عن قسم بمفتاحه (terrain / asphalt / structural).
   static PreviousPriceBand? bandByKey(String key) {

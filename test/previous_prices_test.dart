@@ -82,6 +82,69 @@ void main() {
     });
   });
 
+  group('الترميز الهرمي', () {
+    test('لكل بند كود rd_01 / rd_02 / rd_03', () {
+      expect(
+        previousPriceBands.map((band) => band.code).toList(),
+        <String>['rd_01', 'rd_02', 'rd_03'],
+      );
+    });
+
+    test('كود كل نوع = كود البند + رقمين بلا تكرار', () {
+      final codes = <String>[];
+
+      for (final band in previousPriceBands) {
+        for (var index = 0; index < band.types.length; index++) {
+          codes.add(band.typeCodeAt(index));
+        }
+      }
+
+      expect(codes.length, 71);
+      expect(codes.toSet().length, 71, reason: 'توجد أكواد مكررة');
+      expect(codes.first, 'rd_0101');
+      expect(codes.where((code) => code.startsWith('rd_01')).length, 19);
+      expect(codes.where((code) => code.startsWith('rd_02')).length, 20);
+      expect(codes.where((code) => code.startsWith('rd_03')).length, 32);
+    });
+
+    test('كل كود مطابق للنمط ويُستدعى بالكود الجديد والقديم', () {
+      for (final band in previousPriceBands) {
+        for (var index = 0; index < band.types.length; index++) {
+          final code = band.typeCodeAt(index);
+          final type = band.types[index];
+
+          expect(typeCodePattern.hasMatch(code), isTrue, reason: code);
+          expect(PreviousPrices.findByAnyCode(code), same(type));
+          expect(PreviousPrices.findByAnyCode(type.code), same(type));
+        }
+      }
+
+      expect(bandCodePattern.hasMatch('rd_01'), isTrue);
+      expect(bandCodePattern.hasMatch('rd_0101'), isFalse);
+      expect(typeCodePattern.hasMatch('rd_0101'), isTrue);
+      expect(typeCodePattern.hasMatch('12'), isTrue);
+      expect(typeCodePattern.hasMatch('xx_1'), isFalse);
+    });
+
+    test('خريطة إعادة الترميز تغطي كل الأكواد القديمة', () {
+      final map = PreviousPrices.renumberMap;
+
+      expect(map.length, 71);
+      expect(map[1], 'rd_0101');
+      expect(map[19], 'rd_0119');
+      expect(map[52], 'rd_0201');
+      expect(map[71], 'rd_0220');
+      expect(map[20], 'rd_0301');
+      expect(map[51], 'rd_0332');
+    });
+
+    test('البند يُستدعى بكوده', () {
+      expect(PreviousPrices.bandByCode('rd_01')!.key, 'terrain');
+      expect(PreviousPrices.bandByCode('rd_02')!.key, 'structural');
+      expect(PreviousPrices.bandByCode('rd_03')!.key, 'asphalt');
+    });
+  });
+
   group('الوحدات في التطبيق', () {
     test('عدد يقابله قطعة، والبقية كما هي', () {
       expect(PreviousPrices.findByCode(42)!.appUnit, 'قطعة');
