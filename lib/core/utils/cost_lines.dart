@@ -316,7 +316,7 @@ class CostLineSchema {
           label: 'نوع الوقود *',
           kind: CostFieldKind.choice,
           required: true,
-          choices: ['ديزل', 'بترول', 'زيت'],
+          choices: ['ديزل', 'بترول', 'بنزين', 'غاز', 'قاز', 'زيت'],
           defaultValue: 'ديزل',
           flex: 2,
         ),

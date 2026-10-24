@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../../core/constants/previous_prices.dart';
 import '../../core/constants/roles.dart';
 import '../../core/services/item_approvals.dart';
 import '../../core/services/project_cost_sync.dart';
@@ -84,10 +83,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
 
   /// مباحات البند: الكمية الإضافية والزمن (من مدير الجودة).
   ItemAllowance? _allowance;
-
-  /// سعر الوحدة المقترح من خلاصة أسعار 1447هـ (سعر سابق).
-  double? _suggestedUnitPrice;
-  String _suggestedPriceYear = previousPricesYear;
 
   double? _defaultWorkingHours;
   double? _defaultFuelQuantity;
@@ -392,41 +387,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
         _costEditors[schema.kind]?.applyLines(saved[schema.kind]);
       }
 
-      // سعر سابق (1447هـ): من البند، وإلا من نوع البند المرتبط به.
-      double? suggested = _toDouble(item['previousPrice']);
-      String priceYear = _stringValue(item['previousPriceYear']);
-
-      if (suggested == null || suggested <= 0) {
-        final definitionId = _stringValue(item['itemDefinitionId']);
-        final typeId = _stringValue(item['typeId']);
-
-        if (definitionId.isNotEmpty && typeId.isNotEmpty) {
-          try {
-            final typeDoc = await _firestore
-                .collection('item_definitions')
-                .doc(definitionId)
-                .collection('types')
-                .doc(typeId)
-                .get();
-
-            final typeData = typeDoc.data();
-
-            if (typeData != null) {
-              suggested = _toDouble(typeData['previousPrice']);
-              priceYear = _stringValue(typeData['previousPriceYear']);
-            }
-          } catch (e) {
-            debugPrint('تعذر قراءة سعر 1447هـ: $e');
-          }
-        }
-      }
-
-      if (suggested != null && suggested <= 0) suggested = null;
-
-      _suggestedUnitPrice = suggested;
-      _suggestedPriceYear =
-          priceYear.trim().isEmpty ? previousPricesYear : priceYear;
-
       // خيارات الأسطر: المواد وحصر المعدات.
       try {
         final materialsSnapshot =
@@ -677,6 +637,13 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
 
     setState(() => _savingQuantity = true);
 
+    // تُعلن قبل try لتكون مرئية داخل catch عند رفع الطلب لمدير الجودة.
+    double previousExecuted = 0;
+    double newExecuted = 0;
+    double contractQuantity = 0;
+    bool requestedExtra = false;
+    bool requestedTime = false;
+
     try {
       // إعادة التحقق من التكليف قبل الكتابة.
       final assignment = await _getCurrentAssignment(user.uid);
@@ -688,12 +655,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
 
       final itemRef =
           _firestore.collection('items').doc(widget.itemId);
-
-      double previousExecuted = 0;
-      double newExecuted = 0;
-      double contractQuantity = 0;
-      bool requestedExtra = false;
-      bool requestedTime = false;
 
       await _firestore.runTransaction((transaction) async {
         final snapshot = await transaction.get(itemRef);
@@ -1196,15 +1157,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
                 : '${_formatNumber(executed)} $unit',
             icon: Icons.engineering_outlined,
           ),
-          if (_suggestedUnitPrice != null &&
-              _suggestedUnitPrice! > 0) ...[
-            AppSpacing.verticalSm,
-            AppInfoRow(
-              label: 'سعر الوحدة المقترح ($_suggestedPriceYear)',
-              value: ProjectCosts.formatMoney(_suggestedUnitPrice!),
-              icon: Icons.price_change_outlined,
-            ),
-          ],
           AppSpacing.verticalSm,
           AppInfoRow(
             label: 'المتبقي من الكمية التعاقدية',
@@ -1300,64 +1252,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   // التكاليف الفعلية للبند + تكاليف المشروع
   // ============================================================
 
-  /// يضع سعر الوحدة المقترح (1447هـ) في أسطر التكاليف غير المسعّرة،
-  /// دون المساس بأي سعر أدخله المشرف بنفسه.
-  void _applySuggestedPrice() {
-    final price = _suggestedUnitPrice;
-    if (price == null || price <= 0) return;
-
-    final text = ProjectCosts.toEditText(price);
-    var applied = 0;
-
-    for (final kind in const <CostLineKind>[
-      CostLineKind.material,
-      CostLineKind.equipment,
-      CostLineKind.labor,
-    ]) {
-      final editor = _costEditors[kind];
-      if (editor == null) continue;
-
-      final lines = editor.lines;
-
-      for (var index = 0; index < lines.length; index++) {
-        if (kind == CostLineKind.labor) {
-          final basis = (lines[index]['wageBasis'] ?? '').toString().trim();
-          if (basis != 'للوحدة') continue;
-
-          final current = _toDouble(lines[index]['wage']) ?? 0;
-          if (current > 0) continue;
-
-          editor.setText(index, 'wage', text);
-          applied++;
-          continue;
-        }
-
-        final current = _toDouble(lines[index]['unitPrice']) ?? 0;
-        if (current > 0) continue;
-
-        editor.setText(index, 'unitPrice', text);
-        applied++;
-      }
-    }
-
-    if (!mounted) return;
-
-    setState(() {});
-
-    if (applied == 0) {
-      AppWidgets.showWarning(
-        context,
-        'كل الأسطر مسعّرة بالفعل. عدّل السعر يدويًا من السطر نفسه.',
-      );
-      return;
-    }
-
-    AppWidgets.showSuccess(
-      context,
-      'تم تطبيق السعر المقترح على $applied سطرًا.',
-    );
-  }
-
   Widget _buildCostsCard() {
     final lines = _actualLines;
     final planned = ProjectCosts.breakdownOf(_plannedSource);
@@ -1388,39 +1282,30 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
             '${ProjectCosts.formatMoney(plannedTotal)}',
             style: AppTextStyles.bodySecondary,
           ),
-          if (_suggestedUnitPrice != null &&
-              _suggestedUnitPrice! > 0) ...[
-            AppSpacing.verticalSm,
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.info.withValues(alpha: 0.07),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.price_change_outlined,
-                    color: AppColors.info,
-                  ),
-                  AppSpacing.horizontalSm,
-                  Expanded(
-                    child: Text(
-                      'سعر الوحدة المقترح ($_suggestedPriceYear): '
-                      '${ProjectCosts.formatMoney(_suggestedUnitPrice!)} — '
-                      'يُطبَّق على الأسطر بلا سعر فقط.',
-                      style: AppTextStyles.bodySecondary,
-                    ),
-                  ),
-                  AppOutlinedButton(
-                    text: 'تطبيق',
-                    icon: Icons.playlist_add_check_outlined,
-                    onPressed: _applySuggestedPrice,
-                  ),
-                ],
-              ),
+          AppSpacing.verticalSm,
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.info.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(10),
             ),
-          ],
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.price_change_outlined,
+                  color: AppColors.info,
+                ),
+                AppSpacing.horizontalSm,
+                Expanded(
+                  child: Text(
+                    'الأسعار يحدّدها مدير إدارة الجودة من صفحة '
+                    '«أسعار التكاليف»، ولك إدخال الكميات فقط.',
+                    style: AppTextStyles.bodySecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
           AppSpacing.verticalMd,
 
           for (final schema in CostLineSchema.ordered) ...[
@@ -1432,6 +1317,15 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
                   : (schema.kind == CostLineKind.equipment
                       ? _equipmentOptions
                       : const <CostPickerOption>[]),
+              // الأسعار صلاحية مدير إدارة الجودة: لا تُعرض للمشرف،
+              // وتبقى قيمها محفوظة ويُحسب بها إجمالي السطر.
+              hiddenKeys: const <String>{
+                'unitPrice',
+                'wage',
+                'pricePerLiter',
+              },
+              trailingNote: 'السعر (سعر الوحدة / الأجرة / سعر اللتر) '
+                  'يُحدّده مدير إدارة الجودة؛ أدخل الكميات فقط.',
               accent: _accentFor(schema.kind),
               onChanged: () {
                 if (mounted) setState(() {});
