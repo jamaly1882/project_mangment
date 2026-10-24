@@ -354,6 +354,19 @@ class CostLineSchema {
         all[CostLineKind.fuel]!,
       ];
 
+  /// مفتاح السعر في هذا القسم (سعر الوحدة / الأجرة / سعر اللتر).
+  String get priceKey {
+    switch (kind) {
+      case CostLineKind.material:
+      case CostLineKind.equipment:
+        return 'unitPrice';
+      case CostLineKind.labor:
+        return 'wage';
+      case CostLineKind.fuel:
+        return 'pricePerLiter';
+    }
+  }
+
   String linesFieldFor({required bool actual}) =>
       actual ? actualLinesField : linesField;
 
@@ -465,7 +478,10 @@ class CostLineSchema {
       }
     }
 
-    if (costOf(line) <= 0) {
+    // سطر مستورد بسعر فقط وبلا كميات: مسموح، فالكمية يدخلها المشرف.
+    final pricedOnly = number(line, priceKey) > 0;
+
+    if (costOf(line) <= 0 && !pricedOnly) {
       errors.add('$label: أدخل الكميات والسعر أو تكلفة يدوية');
     }
 

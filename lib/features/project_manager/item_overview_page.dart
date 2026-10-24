@@ -189,7 +189,7 @@ class _ItemOverviewPageState extends State<ItemOverviewPage> {
     final unit = _text(_item['unit']);
     final contract = _number(_item['contractQuantity']);
     final executed = _number(_item['executedQuantity']);
-    final remaining = (contract - executed).clamp(0, double.infinity);
+    final remaining = (contract - executed).clamp(0.0, double.infinity).toDouble();
     final progress = contract <= 0
         ? 0.0
         : (executed / contract).clamp(0.0, 1.0).toDouble();

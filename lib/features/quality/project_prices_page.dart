@@ -6,10 +6,12 @@ import '../../core/services/cost_prices.dart';
 import '../../core/services/project_cost_sync.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
+import '../../core/utils/cost_lines.dart';
 import '../../core/utils/costs.dart';
 import '../../core/widgets/app_widgets.dart';
 
 import 'price_import_dialog.dart';
+import 'project_items_prices_page.dart';
 
 /// ============================================================
 /// استيراد جدول أسعار التكاليف على مستوى المشروع
@@ -224,10 +226,11 @@ class _ProjectPricesPageState extends State<ProjectPricesPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const AppPageHeader(
-              title: 'استيراد جدول الأسعار للمشروع',
+              title: 'استيراد جدول الأسعار',
               subtitle:
-                  'لصق جدول التحليل مرة واحدة لكل مشروع، فيُوزَّع على '
-                  'بنوده: العمالة والمواد والمعدات والمحروقات.',
+                  'اختر المشروع ثم البند، والصق جدول التحليل فتُضاف أسطره '
+                  'إلى تكاليف العمالة والمعدات والمحروقات والمواد. '
+                  'ولكل المشروع استخدم زر «تطبيق على كل بنود المشروع».',
               icon: Icons.table_chart_outlined,
             ),
             AppSpacing.verticalMd,
@@ -291,7 +294,15 @@ class _ProjectPricesPageState extends State<ProjectPricesPage> {
                       return AppCard(
                         onTap: _applying
                             ? null
-                            : () => _importFor(data, doc.id),
+                            : () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => ProjectItemsPricesPage(
+                                      projectId: doc.id,
+                                      projectName: name,
+                                    ),
+                                  ),
+                                ),
                         child: Row(
                           children: [
                             Container(
@@ -319,10 +330,20 @@ class _ProjectPricesPageState extends State<ProjectPricesPage> {
                                   ),
                                   AppSpacing.verticalXs,
                                   const Text(
-                                    'اضغط للصق جدول الأسعار وتوزيعه على البنود',
+                                    'اضغط لاختيار البند ولصق جدول أسعاره',
                                     style: AppTextStyles.bodySecondary,
                                   ),
                                 ],
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'تطبيق على كل بنود المشروع',
+                              onPressed: _applying
+                                  ? null
+                                  : () => _importFor(data, doc.id),
+                              icon: const Icon(
+                                Icons.playlist_add_check_outlined,
+                                color: AppColors.qualityCostManager,
                               ),
                             ),
                             const Icon(
