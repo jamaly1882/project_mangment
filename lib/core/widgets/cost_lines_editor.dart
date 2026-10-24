@@ -446,9 +446,14 @@ class CostLinesEditor extends StatefulWidget {
     this.accent,
     this.onChanged,
     this.trailingNote,
+    this.hiddenKeys = const <String>{},
   });
 
   final CostLineSchema schema;
+
+  /// حقول تُخفى من الإدخال مع بقاء قيمها محفوظة عند الحفظ.
+  /// تُستخدم لإخفاء الأسعار عن المشرف؛ السعر يحدّده مدير الجودة فقط.
+  final Set<String> hiddenKeys;
   final CostLinesEditorController controller;
   final List<CostPickerOption> options;
   final Color? accent;
@@ -605,7 +610,7 @@ class _CostLinesEditorState extends State<CostLinesEditor> {
     int index,
     Color accent,
   ) {
-    final rows = _fieldRows(schema);
+    final rows = _fieldRowsFor(_visibleFields(schema));
 
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
@@ -709,13 +714,21 @@ class _CostLinesEditorState extends State<CostLinesEditor> {
     );
   }
 
+  /// الحقول الظاهرة: نستثني الأسعار المخفية، والقيم تبقى في المتحكم.
+  List<CostLineField> _visibleFields(CostLineSchema schema) => [
+        for (final field in schema.fields)
+          if (!widget.hiddenKeys.contains(field.key)) field,
+      ];
+
   /// تقسيم الحقول إلى صفوف حتى لا تتزاحم على الشاشة.
-  static List<List<CostLineField>> _fieldRows(CostLineSchema schema) {
+  static List<List<CostLineField>> _fieldRowsFor(
+    List<CostLineField> fields,
+  ) {
     final rows = <List<CostLineField>>[];
     var current = <CostLineField>[];
     var flex = 0;
 
-    for (final field in schema.fields) {
+    for (final field in fields) {
       if (flex + field.flex > 4 && current.isNotEmpty) {
         rows.add(current);
         current = <CostLineField>[];

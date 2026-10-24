@@ -8,6 +8,7 @@ import '../../core/widgets/app_widgets.dart';
 import '../../core/services/item_approvals.dart';
 import '../project_manager/items_page.dart';
 import 'approvals_page.dart';
+import 'item_prices_page.dart';
 
 // =============================================================
 // لوحة مدير إدارة الجودة والتكلفة
@@ -122,6 +123,23 @@ class _QualityCostDashboardPageState extends State<QualityCostDashboardPage> {
                 setState(() => _search = value.trim().toLowerCase());
               },
             ),
+            AppSpacing.verticalSm,
+
+            // أسعار التكاليف: صلاحية مدير إدارة الجودة.
+            AppOutlinedButton(
+              label: 'أسعار التكاليف (مواد / عمالة / معدات / محروقات)',
+              icon: Icons.price_change_outlined,
+              expanded: true,
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ItemPricesPage(
+                    projectIds: widget.projectIds,
+                  ),
+                ),
+              ),
+            ),
+
             AppSpacing.verticalLg,
 
             // أيقونتا الموافقات: الكميات الإضافية وتمديد الوقت.

@@ -106,10 +106,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
   /// يمكن أن يعمل على البند أكثر من معدة. القائمة هي المصدر،
   /// والحقل المفرد يبقى أول معدة للتوافق مع بقية الصفحات.
   List<String> _selectedEquipmentIds = <String>[];
-  String? _selectedEquipmentCode;
-  String? _selectedEquipmentWorkUnit;
-  double? _equipmentMeterAtAssignment;
-
   /// مجموع تكاليف بقية بنود المشروع،
   /// لأن تكلفة المشروع تُحسب تلقائيًا من بنوده.
   Map<String, double> _otherItemsCosts = <String, double>{};
@@ -339,14 +335,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
 
       _selectedEquipmentIds = savedEquipmentIds;
       _selectedEquipmentId = savedEquipmentIds.isEmpty ? null : savedEquipmentIds.first;
-      _selectedEquipmentCode = _stringValue(details['equipmentCode']).isEmpty
-          ? null
-          : _stringValue(details['equipmentCode']);
-      _selectedEquipmentWorkUnit = _stringValue(details['equipmentWorkUnit']).isEmpty
-          ? null
-          : _stringValue(details['equipmentWorkUnit']);
-      _equipmentMeterAtAssignment = _toDouble(details['equipmentCurrentMeterAtAssignment']);
-
       String? projectName;
 
 
@@ -809,9 +797,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
       setState(() {
         _selectedSupervisorName = supervisorDisplayName;
         _selectedEquipmentId = equipmentId;
-        _selectedEquipmentCode = equipmentCode;
-        _selectedEquipmentWorkUnit = equipmentWorkUnit;
-        _equipmentMeterAtAssignment = equipmentCurrentMeter;
       });
       // تكاليف المشروع = مجموع تكاليف بنوده.
       ProjectCostTotals? projectTotals;
@@ -1144,11 +1129,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
                     ? null
                     : _selectedEquipmentIds.first;
 
-                if (_selectedEquipmentId == doc.id) {
-                  _selectedEquipmentCode = _stringValue(data['code']);
-                  _selectedEquipmentWorkUnit = _stringValue(data['workUnit']);
-                  _equipmentMeterAtAssignment = _toDouble(data['currentMeter']);
-                }
               });
             },
       avatar: Icon(
