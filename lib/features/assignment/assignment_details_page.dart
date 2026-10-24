@@ -11,6 +11,7 @@ import '../../core/utils/cost_lines.dart';
 import '../../core/utils/costs.dart';
 import '../../core/widgets/app_widgets.dart';
 import '../../core/widgets/cost_lines_editor.dart';
+import '../../core/widgets/cost_table_editor.dart';
 import '../../core/widgets/cost_widgets.dart';
 
 /// صفحة مشرف البند (وصفحة البند وتفاصيله).
@@ -60,10 +61,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
     for (final schema in CostLineSchema.ordered)
       schema.kind: CostLinesEditorController(schema),
   };
-
-  /// خيارات الاختيار من بيانات النظام (المواد وحصر المعدات).
-  List<CostPickerOption> _materialOptions = const <CostPickerOption>[];
-  List<CostPickerOption> _equipmentOptions = const <CostPickerOption>[];
 
   // ============================================================
   // حقل الكمية المنفذة (يدخله مشرف البند)
@@ -385,45 +382,6 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
 
       for (final schema in CostLineSchema.ordered) {
         _costEditors[schema.kind]?.applyLines(saved[schema.kind]);
-      }
-
-      // خيارات الأسطر: المواد وحصر المعدات.
-      try {
-        final materialsSnapshot =
-            await _firestore.collection('materials').get();
-
-        final options = <CostPickerOption>[
-          for (final doc in materialsSnapshot.docs)
-            CostPickerOption(
-              id: doc.id,
-              label: _stringValue(
-                doc.data()['name'],
-                fallback: 'مادة بدون اسم',
-              ),
-            ),
-        ]..sort((a, b) => a.label.compareTo(b.label));
-
-        _materialOptions = options;
-      } catch (e) {
-        debugPrint('تعذر تحميل المواد لأسطر التكلفة: $e');
-      }
-
-      try {
-        final equipmentSnapshot = await _firestore
-            .collection('equipment')
-            .where('status', isEqualTo: 'active')
-            .get();
-
-        _equipmentOptions = <CostPickerOption>[
-          for (final doc in equipmentSnapshot.docs)
-            CostPickerOption(
-              id: doc.id,
-              label: '${_stringValue(doc.data()['code'], fallback: '—')} — '
-                  '${_stringValue(doc.data()['name'], fallback: _stringValue(doc.data()['type'], fallback: 'معدة'))}',
-            ),
-        ]..sort((a, b) => a.label.compareTo(b.label));
-      } catch (e) {
-        debugPrint('تعذر تحميل المعدات لأسطر التكلفة: $e');
       }
 
       ProjectCostTotals? totals;
@@ -1308,24 +1266,15 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
           ),
           AppSpacing.verticalMd,
 
+          // جداول الاختيار: علّم ✓ على السطر ثم أدخل الكمية/العدد والمدة،
+          // فتظهر التكلفة. الأسعار منقولة من إدارة الجودة (مقفلة).
           for (final schema in CostLineSchema.ordered) ...[
-            CostLinesEditor(
+            CostTableEditor(
               schema: schema,
               controller: _costEditors[schema.kind]!,
-              options: schema.kind == CostLineKind.material
-                  ? _materialOptions
-                  : (schema.kind == CostLineKind.equipment
-                      ? _equipmentOptions
-                      : const <CostPickerOption>[]),
-              // الأسعار منقولة من مدير إدارة الجودة: تظهر للمشرف
-              // للقراءة فقط، ويُحسب بها إجمالي السطر.
-              readOnlyKeys: const <String>{
-                'unitPrice',
-                'wage',
-                'pricePerLiter',
-              },
-              trailingNote: 'السعر (سعر الوحدة / الأجرة / سعر اللتر) '
-                  'منقول من إدارة الجودة — للقراءة فقط؛ أدخل الكميات.',
+              priceEditable: false,
+              trailingNote: 'علّم ✓ على السطر ثم أدخل الكميات؛ '
+                  'السعر منقول من إدارة الجودة — للقراءة فقط.',
               accent: _accentFor(schema.kind),
               onChanged: () {
                 if (mounted) setState(() {});
