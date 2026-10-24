@@ -13,6 +13,7 @@ import '../../core/widgets/app_widgets.dart';
 import '../../core/constants/previous_prices.dart';
 import '../../core/constants/roles.dart';
 import '../../core/widgets/cost_lines_editor.dart';
+import '../../core/widgets/cost_table_editor.dart';
 
 /// تفاصيل بند المشروع: اختيار المعدة ومشرف البند وتحديد الاستهلاك المخطط
 /// وتكاليف البند (المواد، أجور العمالة، المعدات، المحروقات).
@@ -83,10 +84,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
     for (final schema in CostLineSchema.ordered)
       schema.kind: CostLinesEditorController(schema),
   };
-
-  /// خيارات الاختيار من بيانات النظام لأسطر المواد والمعدات.
-  List<CostPickerOption> _materialOptions = const <CostPickerOption>[];
-  List<CostPickerOption> _equipmentOptions = const <CostPickerOption>[];
 
   Map<String, dynamic>? _itemData;
   String? _projectName;
@@ -386,43 +383,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         debugPrint('تعذر حساب تكاليف بقية البنود: $e');
       }
 
-      // خيارات أسطر التكلفة: المواد وحصر المعدات.
-      var materialOptions = const <CostPickerOption>[];
-      var equipmentOptions = const <CostPickerOption>[];
-
-      try {
-        final materialsSnapshot =
-            await _firestore.collection('materials').get();
-
-        materialOptions = <CostPickerOption>[
-          for (final doc in materialsSnapshot.docs)
-            CostPickerOption(
-              id: doc.id,
-              label: _stringValue(
-                doc.data()['name'],
-                defaultValue: 'مادة بدون اسم',
-              ),
-            ),
-        ]..sort((a, b) => a.label.compareTo(b.label));
-      } catch (e) {
-        debugPrint('تعذر تحميل المواد لأسطر التكلفة: $e');
-      }
-
-      try {
-        final equipmentSnapshot = await _equipmentCollection.get();
-
-        equipmentOptions = <CostPickerOption>[
-          for (final doc in equipmentSnapshot.docs)
-            CostPickerOption(
-              id: doc.id,
-              label: '${_stringValue(doc.data()['code'], defaultValue: '—')} — '
-                  '${_stringValue(doc.data()['name'], defaultValue: _stringValue(doc.data()['type'], defaultValue: 'معدة'))}',
-            ),
-        ]..sort((a, b) => a.label.compareTo(b.label));
-      } catch (e) {
-        debugPrint('تعذر تحميل المعدات لأسطر التكلفة: $e');
-      }
-
       if (!mounted) return;
       setState(() {
         _itemData = itemData;
@@ -430,8 +390,6 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
         _otherItemsCosts = otherCosts;
         _otherItemsEffective = otherEffectiveSums;
         _otherItemsCount = otherCount;
-        _materialOptions = materialOptions;
-        _equipmentOptions = equipmentOptions;
         _loadingItem = false;
       });
     } catch (e) {
@@ -1629,16 +1587,17 @@ class _ItemDetailsPageState extends State<ItemDetailsPage> {
           _buildPreviousPriceCard(),
           AppSpacing.verticalMd,
         ],
+        // جداول الاختيار بالأسعار: علّم ✓ على ما يستخدمه البند.
         for (final schema in CostLineSchema.ordered) ...[
-          CostLinesEditor(
+          CostTableEditor(
             schema: schema,
             controller: _costEditors[schema.kind]!,
-            options: schema.kind == CostLineKind.material
-                ? _materialOptions
-                : (schema.kind == CostLineKind.equipment
-                    ? _equipmentOptions
-                    : const <CostPickerOption>[]),
             accent: _accentFor(schema.kind),
+            priceEditable: true,
+            // إلغاء ✓ هنا يُزيل السطر من مخطط البند وتكليف المشرف.
+            quantitySelection: false,
+            trailingNote: 'علّم ✓ على الأسطر التي يستخدمها البند؛ '
+                'وإلغاء ✓ يُزيل السطر. الكمية والسعر يُدخلان في الجدول.',
             onChanged: () {
               if (mounted) setState(() {});
             },
