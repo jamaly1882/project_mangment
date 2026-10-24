@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../core/constants/roles.dart';
 import '../accountant/accountant_page.dart';
 import '../admin/admin_page.dart';
-import '../admin/org_chart_page.dart';
 import '../admin/projects_dept_dashboard_page.dart';
 import '../driver/driver_page.dart';
 import '../engineer/engineer_page.dart';
@@ -11,6 +10,7 @@ import '../movement/diesel_dashboard_page.dart';
 import '../movement/movement_dashboard_page.dart';
 import '../movement/workshop_dashboard_page.dart';
 import '../project_manager/project_manager_dashboard_page.dart';
+import '../quality/quality_cost_dashboard_page.dart';
 import '../supervisor/supervisor_page.dart';
 
 // ============================================================
@@ -168,17 +168,16 @@ RoleRoute resolveRoleRoute({
       return const RoleRoute.page(WorkshopDashboardPage());
 
     // ==========================================================
-    // أدوار الهيكل التي لا تملك لوحة تنفيذية بعد
-    //
-    // تفتح لها صفحة الهيكل الإداري مع إبراز منصبها ومهامه.
+    // مدير إدارة الجودة والتكلفة — إدخال الكميات التعاقدية
+    // والتكاليف التقديرية لبنود المشاريع المرتبطة به.
     // ==========================================================
 
     case AppRoles.qualityCostManager:
+      // مدير الجودة يدخل الكمية التعاقدية والتكلفة التقديرية لكل بند،
+      // ويفتح بنود أي مشروع مرتبط به. المشرف والمهندس مربوطان
+      // بالمشروع فلا يُطلبان عند إدخال البند.
       return RoleRoute.page(
-        OrgChartPage(
-          focusRole: AppRoles.normalize(raw),
-          readOnly: true,
-        ),
+        QualityCostDashboardPage(projectIds: projectIds),
       );
 
     // ==========================================================
