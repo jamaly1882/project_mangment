@@ -212,6 +212,41 @@ void main() {
       expect(controller.count, 1);
       expect(controller.hasQuantity(0), isTrue);
     });
+
+    testWidgets('وضع مدير المشروع: ✓ تضيف بلا كميات وإلغاؤها تحذف السطر',
+        (tester) async {
+      final schema = CostLineSchema.of(CostLineKind.material);
+      final controller = CostLinesEditorController(schema);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: CostTableEditor(
+                schema: schema,
+                controller: controller,
+                priceEditable: true,
+                quantitySelection: false,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(Checkbox).first);
+      await tester.pumpAndSettle();
+
+      expect(controller.count, 1);
+      expect(controller.hasQuantity(0), isFalse, reason: 'بلا كميات');
+      expect(controller.textOf(0, 'unitPrice'), '4000');
+
+      await tester.tap(find.byType(Checkbox).first);
+      await tester.pumpAndSettle();
+
+      expect(controller.count, 0, reason: 'إلغاء ✓ يحذف السطر');
+    });
     testWidgets('السعر مقفل للمشرف ولا يظهر كحقل إدخال', (tester) async {
       final schema = CostLineSchema.of(CostLineKind.fuel);
       final controller = CostLinesEditorController(schema);
