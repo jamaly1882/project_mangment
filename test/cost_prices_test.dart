@@ -84,6 +84,64 @@ void main() {
     });
   });
 
+  group('CostPrices.parseTable — التوزيع بموضع العمود', () {
+    test('ما سوى الوقود في عمود المحروقات يُضاف إلى المواد', () {
+      final entries = CostPrices.parseTable(
+        'مشرف | 12,000 | دكاكة صغيرة | 2,360 | ماء زجاجة | 15,000',
+      );
+
+      expect(
+        entries.map((e) => e.kind).toList(),
+        <CostLineKind>[
+          CostLineKind.labor,
+          CostLineKind.equipment,
+          CostLineKind.material,
+        ],
+      );
+    });
+
+    test('الوقود داخل عمود المحروقات يُصنَّف محروقات', () {
+      final entries = CostPrices.parseTable(
+        'عمال | 8,500 | فيكسس | 2,310 | غاز | 325',
+      );
+
+      expect(entries.last.kind, CostLineKind.fuel);
+      expect(entries.last.label, 'غاز');
+      expect(entries.last.price, 325);
+    });
+
+    test('كل سطر في عمود المهنة عمالة حتى بلا كلمات مفتاحية', () {
+      final entries = CostPrices.parseTable(
+        'مستخلص أعمال | 5,000 | قلاب 6 طن | 9,000 | قاز | 500',
+      );
+
+      expect(entries[0].kind, CostLineKind.labor);
+      expect(entries[1].kind, CostLineKind.equipment);
+      expect(entries[2].kind, CostLineKind.fuel);
+    });
+
+    test('isFuel يميز الوقود عن بقية المواد', () {
+      for (final fuel in const <String>[
+        'ديزل',
+        'بترول',
+        'غاز',
+        'قاز',
+        'زيت',
+      ]) {
+        expect(CostPrices.isFuel(fuel), isTrue, reason: fuel);
+      }
+
+      for (final material in const <String>[
+        'ماء زجاجة',
+        'حجر جدران',
+        'رصيف 25 سم',
+        'حديد حماية',
+      ]) {
+        expect(CostPrices.isFuel(material), isFalse, reason: material);
+      }
+    });
+  });
+
   group('CostPrices.parsePrice — أرقام الجدول', () {
     test('يقبل الفواصل والأرقام العربية', () {
       expect(CostPrices.parsePrice('11,500'), 11500);

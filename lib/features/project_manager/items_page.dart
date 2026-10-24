@@ -9,13 +9,19 @@ import '../../core/widgets/app_widgets.dart';
 
 import 'add_item_page.dart';
 import 'item_details_page.dart';
+import 'item_overview_page.dart';
 
 class ItemsPage extends StatelessWidget {
   final String projectId;
 
+  /// عرض فقط: بلا إضافة بنود، بلا إدخال كميات، وبطاقة إحصاءات للبند.
+  /// يُستخدم لمهندس المشروع؛ فالإدخال صلاحية مدير الجودة والمشرف.
+  final bool readOnly;
+
   const ItemsPage({
     super.key,
     required this.projectId,
+    this.readOnly = false,
   });
 
   // =========================================================
@@ -102,10 +108,15 @@ class ItemsPage extends StatelessWidget {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ItemDetailsPage(
-          projectId: projectId,
-          itemId: itemId,
-        ),
+        builder: (_) => readOnly
+            ? ItemOverviewPage(
+                projectId: projectId,
+                itemId: itemId,
+              )
+            : ItemDetailsPage(
+                projectId: projectId,
+                itemId: itemId,
+              ),
       ),
     );
   }
@@ -515,15 +526,17 @@ class ItemsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppScaffold(
       title: 'بنود المشروع',
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _addItem(context),
-        icon: const Icon(
-          Icons.add,
-        ),
-        label: const Text(
-          'إضافة بند',
-        ),
-      ),
+      floatingActionButton: readOnly
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => _addItem(context),
+              icon: const Icon(
+                Icons.add,
+              ),
+              label: const Text(
+                'إضافة بند',
+              ),
+            ),
       child: AppPage(
         padding: const EdgeInsets.fromLTRB(
           16,
@@ -657,6 +670,7 @@ class ItemsPage extends StatelessWidget {
                               data,
                             );
                           },
+                          readOnly: readOnly,
                         ),
                       );
                     },
@@ -690,6 +704,9 @@ class _ItemCard extends StatelessWidget {
 
   final VoidCallback onAddQuantity;
 
+  /// عرض فقط: بطاقة إحصاءات بدل أزرار الإدخال.
+  final bool readOnly;
+
   const _ItemCard({
     required this.itemId,
     required this.data,
@@ -698,6 +715,7 @@ class _ItemCard extends StatelessWidget {
     required this.formatNumber,
     required this.onDetails,
     required this.onAddQuantity,
+    this.readOnly = false,
   });
 
   @override
@@ -1170,47 +1188,55 @@ class _ItemCard extends StatelessWidget {
           // أزرار الكميات والتفاصيل
           // =====================================================
 
-          Row(
-            children: [
-              // =================================================
-              // إضافة كمية
-              // =================================================
+          if (readOnly)
+            AppOutlinedButton(
+              text: 'عرض الإحصاءات',
+              icon: Icons.insights_outlined,
+              expanded: true,
+              onPressed: onDetails,
+            )
+          else
+            Row(
+              children: [
+                // =================================================
+                // إضافة كمية
+                // =================================================
 
-              Expanded(
-                child: AppButton(
-                  text: isCompleted
-                      ? 'تم التنفيذ'
-                      : 'إضافة كمية',
-                  icon: isCompleted
-                      ? Icons.check_circle
-                      : Icons.add_chart,
-                  expanded: true,
-                  onPressed: isCompleted
-                      ? null
-                      : onAddQuantity,
+                Expanded(
+                  child: AppButton(
+                    text: isCompleted
+                        ? 'تم التنفيذ'
+                        : 'إضافة كمية',
+                    icon: isCompleted
+                        ? Icons.check_circle
+                        : Icons.add_chart,
+                    expanded: true,
+                    onPressed: isCompleted
+                        ? null
+                        : onAddQuantity,
+                  ),
                 ),
-              ),
 
-              AppSpacingHorizontal.sm,
+                AppSpacingHorizontal.sm,
 
-              // =================================================
-              // التفاصيل
-              // =================================================
+                // =================================================
+                // التفاصيل
+                // =================================================
 
-              Expanded(
-                child: AppOutlinedButton(
-                  text: hasDetails
-                      ? 'التفاصيل'
-                      : 'إضافة التفاصيل',
-                  icon: hasDetails
-                      ? Icons.edit_note
-                      : Icons.playlist_add,
-                  expanded: true,
-                  onPressed: onDetails,
+                Expanded(
+                  child: AppOutlinedButton(
+                    text: hasDetails
+                        ? 'التفاصيل'
+                        : 'إضافة التفاصيل',
+                    icon: hasDetails
+                        ? Icons.edit_note
+                        : Icons.playlist_add,
+                    expanded: true,
+                    onPressed: onDetails,
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
     );

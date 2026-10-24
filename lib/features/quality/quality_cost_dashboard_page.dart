@@ -9,6 +9,7 @@ import '../../core/services/item_approvals.dart';
 import '../project_manager/items_page.dart';
 import 'approvals_page.dart';
 import 'item_prices_page.dart';
+import 'project_prices_page.dart';
 
 // =============================================================
 // لوحة مدير إدارة الجودة والتكلفة
@@ -109,8 +110,9 @@ class _QualityCostDashboardPageState extends State<QualityCostDashboardPage> {
             const AppPageHeader(
               title: 'بنود المشاريع',
               subtitle:
-                  'أدخل الكمية التعاقدية والتكلفة التقديرية لكل بند. '
-                  'مهندس المشروع ومشرفه مربوطان بالمشروع مسبقًا.',
+                  'أدخل البنود وكمياتها التعاقدية وتكاليفها وأسعارها. '
+                  'مهندس المشروع للعرض والإحصاءات، والمشرف لتسجيل '
+                  'الكميات المنفذة.',
               icon: Icons.fact_check_outlined,
             ),
             AppSpacing.verticalLg,
@@ -134,6 +136,22 @@ class _QualityCostDashboardPageState extends State<QualityCostDashboardPage> {
                 context,
                 MaterialPageRoute(
                   builder: (_) => ItemPricesPage(
+                    projectIds: widget.projectIds,
+                  ),
+                ),
+              ),
+            ),
+            AppSpacing.verticalSm,
+
+            // استيراد الجدول مرة واحدة لكل مشروع.
+            AppOutlinedButton(
+              label: 'استيراد جدول الأسعار على مستوى المشروع',
+              icon: Icons.table_chart_outlined,
+              expanded: true,
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ProjectPricesPage(
                     projectIds: widget.projectIds,
                   ),
                 ),
@@ -267,7 +285,7 @@ class _QualityCostDashboardPageState extends State<QualityCostDashboardPage> {
                                   ),
                                   AppSpacing.verticalXs,
                                   Text(
-                                    'اضغط لعرض البنود وإدخال الكميات التعاقدية',
+                                    'اضغط لإضافة البنود وإدخال الكميات التعاقدية والتكاليف',
                                     style: AppTextStyles.bodySecondary,
                                   ),
                                 ],
