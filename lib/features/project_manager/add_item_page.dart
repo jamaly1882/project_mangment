@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants/previous_prices.dart';
 import '../../core/services/project_cost_sync.dart';
+import '../../core/services/unit_analysis_seed.dart';
 import '../../core/services/project_team.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_text_styles.dart';
@@ -68,6 +69,10 @@ class _AddItemPageState extends State<AddItemPage> {
   String _selectedPreviousPriceYear = '';
 
   bool _saving = false;
+
+  /// تعبئة أسعار التحليل (133 سطرًا) في البند الجديد فور إنشائه،
+  /// فتظهر للمشرف في تكليفه بلا انتظار استيراد يدوي.
+  bool _seedAnalysisPrices = true;
 
   static const List<String> _units = [
     'م3',
@@ -967,6 +972,12 @@ class _AddItemPageState extends State<AddItemPage> {
         // يبدأ التنفيذ من صفر.
         'executedQuantity': 0.0,
 
+        // أسعار التحليل تُحفظ مع البند نفسه: بلا كميات (تكلفة صفر)
+        // حتى يدخل المشرف كمياته، فلا حاجة لكتابة إضافية بعد الإنشاء.
+        if (_seedAnalysisPrices) ...UnitAnalysisSeed.saveData(
+          contractQuantity: quantity,
+        ),
+
         'detailsAdded': false,
         'status': 'active',
         'createdAt': FieldValue.serverTimestamp(),
@@ -977,7 +988,7 @@ class _AddItemPageState extends State<AddItemPage> {
 
       await itemRef.set(itemData);
 
-      // البند الجديد بلا تكاليف بعد، لكن نحدّث مجاميع المشروع.
+      // مجاميع المشروع تُحدّث بعد حفظ أسطر التحليل (وهي صفرية بلا كميات).
       try {
         await ProjectCostSync.applyTotals(widget.projectId);
       } catch (e) {
@@ -1261,6 +1272,38 @@ class _AddItemPageState extends State<AddItemPage> {
                 suffixText: 'يوم',
                 prefixIcon: Icons.timelapse_outlined,
                 onChanged: (_) => setState(() {}),
+              ),
+
+              AppSpacing.verticalLg,
+
+              const AppSectionTitle(
+                title: 'أسعار التكاليف',
+                icon: Icons.price_change_outlined,
+              ),
+              AppSpacing.verticalSm,
+
+              AppCard(
+                color: AppColors.background,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'تعبئة أسعار التحليل في البند الجديد',
+                      ),
+                      subtitle: Text(
+                        '${UnitAnalysisSeed.lineCount} سطرًا بأسعارها وبلا كميات '
+                        '(${UnitAnalysisSeed.summary}). '
+                        'تظهر للمشرف في تكليف البند ويُدخل الكميات فقط.',
+                        style: AppTextStyles.bodySecondary,
+                      ),
+                      value: _seedAnalysisPrices,
+                      onChanged: (value) =>
+                          setState(() => _seedAnalysisPrices = value),
+                    ),
+                  ],
+                ),
               ),
 
               AppSpacing.verticalLg,
