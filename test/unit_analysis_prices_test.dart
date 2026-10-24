@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:azal/core/constants/unit_analysis_prices.dart';
 import 'package:azal/core/services/cost_prices.dart';
+import 'package:azal/core/services/unit_analysis_seed.dart';
 import 'package:azal/core/utils/cost_lines.dart';
 
 // ============================================================
@@ -141,6 +142,107 @@ void main() {
       expect(line['materialName'], 'أسمنت');
       expect(line['unitPrice'], 4000);
       expect((line['unit'] as String).isNotEmpty, isTrue);
+    });
+  });
+
+  // ============================================================
+  // بذور البند الجديد: الأسعار تُحفظ مع الإنشاء وبلا كميات
+  // ============================================================
+
+  group('UnitAnalysisSeed — بند جديد', () {
+    test('كل الأقسام تُبنى بعدد أسطرها وبلا كميات', () {
+      final lines = UnitAnalysisSeed.lines;
+
+      expect(lines[CostLineKind.labor]!.length, unitAnalysisLaborCount);
+      expect(
+        lines[CostLineKind.equipment]!.length,
+        unitAnalysisEquipmentCount,
+      );
+      expect(lines[CostLineKind.fuel]!.length, unitAnalysisFuelCount);
+      expect(lines[CostLineKind.material]!.length, unitAnalysisMaterialsCount);
+      expect(UnitAnalysisSeed.lineCount, unitAnalysisRowCount);
+
+      // لا كميات: تكلفة البند صفر عند الإنشاء.
+      for (final line in lines[CostLineKind.material]!) {
+        expect(line['quantity'], 0);
+      }
+      for (final line in lines[CostLineKind.fuel]!) {
+        expect(line['quantity'], 0);
+      }
+      for (final line in lines[CostLineKind.equipment]!) {
+        expect(line['quantity'], 0);
+      }
+      for (final line in lines[CostLineKind.labor]!) {
+        expect(line['duration'], 0);
+      }
+    });
+
+    test('الأسعار مكتوبة في أسطر البذور', () {
+      final material = UnitAnalysisSeed.lines[CostLineKind.material]!
+          .firstWhere((line) => line['materialName'] == 'أسمنت');
+      expect(material['unitPrice'], 4000);
+
+      final fuel = UnitAnalysisSeed.lines[CostLineKind.fuel]!
+          .firstWhere((line) => line['fuelType'] == 'ديزل');
+      expect(fuel['pricePerLiter'], 475);
+
+      final labor = UnitAnalysisSeed.lines[CostLineKind.labor]!
+          .firstWhere((line) => line['job'] == 'عمال');
+      expect(labor['wage'], 8500);
+    });
+
+    test('بيانات الحفظ تحمل الأسطر والمجاميع الصفرية', () {
+      final data = UnitAnalysisSeed.saveData(contractQuantity: 10);
+
+      final planned =
+          CostLines.fromData(data, contractQuantity: 10, unit: 'م3');
+
+      expect(planned.lineCount, unitAnalysisRowCount);
+
+      // الأسطر الفعلية مكتوبة أيضًا، وهي ما تقرأه صفحة المشرف.
+      final material = CostLineSchema.of(CostLineKind.material);
+      expect(
+        data.containsKey(material.linesFieldFor(actual: true)),
+        isTrue,
+      );
+      final actualLines =
+          CostLines.fromData(data, actual: true, contractQuantity: 10);
+      expect(actualLines.lineCount, unitAnalysisRowCount);
+      expect(
+        CostLineKind.values.fold<double>(
+          0,
+          (sum, kind) => sum + actualLines.totalOf(kind),
+        ),
+        0,
+      );
+      expect(
+        CostLineKind.values.fold<double>(
+          0,
+          (sum, kind) => sum + planned.totalOf(kind),
+        ),
+        0,
+      );
+      expect(planned[CostLineKind.material].first['unitPrice'], isPositive);
+    });
+
+    test('إعادة الاستيراد لا تُكرر أسطر البذور', () {
+      final planned = CostLines(UnitAnalysisSeed.lines);
+      final schema = CostLineSchema.of(CostLineKind.material);
+      final before = planned[CostLineKind.material].length;
+
+      // كل أسماء البذور موجودة أصلًا ⇒ لا سطر جديد.
+      for (final line in planned[CostLineKind.material]) {
+        final label = CostLineSchema.text(line, schema.titleKey);
+        expect(
+          unitAnalysisMaterials.any(
+            (row) => CostPrices.matches(label, row.name),
+          ),
+          isTrue,
+        );
+      }
+
+      expect(planned[CostLineKind.material].length, before);
+      expect(UnitAnalysisSeed.lines[CostLineKind.material]!.length, before);
     });
   });
 }

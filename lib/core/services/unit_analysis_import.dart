@@ -128,6 +128,13 @@ class UnitAnalysisImporter {
         if (matched || !addMissing) continue;
 
         planned[kind].add(CostPrices.newLine(kind, entry));
+
+        // صفحة المشرف تقرأ الأسطر الفعلية: نضيف السطر هناك أيضًا
+        // وإلا فلن يظهر السعر في تكليف البند.
+        if (actualToo) {
+          actual[kind].add(CostPrices.newLine(kind, entry));
+        }
+
         added++;
       }
     }
@@ -196,7 +203,8 @@ class UnitAnalysisImporter {
           itemId: doc.id,
           projectId: projectId,
           userId: userId,
-          actualToo: false,
+          // الأسطر الفعلية أيضًا: صفحة المشرف (التكليف) تقرأها.
+          actualToo: true,
         );
 
         if (result.updatedPrices > 0 || result.addedLines > 0) {
