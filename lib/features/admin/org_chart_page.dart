@@ -877,15 +877,11 @@ class _OrgChartPageState extends State<OrgChartPage> {
                                   selectedProjectNames,
                               singleId:
                                   singleProjectId,
-                              onSingleChanged:
-                                  (id, code, name) {
+                              onSingleChanged: (id, code, name) {
                                 setDialogState(() {
-                                  singleProjectId =
-                                      id;
-                                  singleProjectCode =
-                                      code;
-                                  singleProjectName =
-                                      name;
+                                  singleProjectId = id;
+                                  singleProjectCode = code ?? '';
+                                  singleProjectName = name;
                                 });
                               },
                               onMultiChanged: () =>
