@@ -230,12 +230,12 @@ class ItemsPage extends StatelessWidget {
                     AppSpacing.verticalSm,
 
                     // ===========================================
-                    // المنفذ سابقًا
+                    // الكمية المنفذة
                     // ===========================================
 
                     AppInfoRow(
                       icon: Icons.done_all,
-                      label: 'المنفذ سابقًا',
+                      label: 'الكمية المنفذة',
                       value:
                           '${_formatNumber(executedQuantity)} $unit',
                     ),

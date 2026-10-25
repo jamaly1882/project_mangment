@@ -387,7 +387,7 @@ class _ApprovalTile extends StatelessWidget {
   final String title;
   final IconData icon;
   final Color color;
-  final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
+  final Stream<List<ItemApproval>> stream;
   final List<String> projectIds;
   final VoidCallback onTap;
 
@@ -419,16 +419,14 @@ class _ApprovalTile extends StatelessWidget {
                 child: Icon(icon, color: color),
               ),
               const Spacer(),
-              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              StreamBuilder<List<ItemApproval>>(
                 stream: stream,
                 builder: (context, snapshot) {
-                  final count = (snapshot.data?.docs ??
-                          <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+                  final count = (snapshot.data ?? <ItemApproval>[])
                       .where(
-                        (doc) => projectIds.isEmpty ||
-                            projectIds.contains(
-                              (doc.data()['projectId'] ?? '').toString(),
-                            ),
+                        (approval) =>
+                            projectIds.isEmpty ||
+                            projectIds.contains(approval.projectId),
                       )
                       .length;
 
