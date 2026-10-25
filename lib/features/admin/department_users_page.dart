@@ -15,7 +15,7 @@ import '../../core/constants/roles.dart';
 // • كل رئيس إدارة ينشئ كل من في إدارته من صفحته:
 //   - المشاريع: مدير الجودة، مشرف المشروع، مهندس المشروع.
 //   - الحركة: مدير المحروقات، مراقب الحركة، مدير الورشة.
-//   - المالية: إدارة الحسابات، محاسب المشروع.
+//   - المالية: المحاسب (مسؤول السندات والصندوق والقيود).
 // • بقية الأدوار لا تنشئ حسابات.
 //
 // هذه الصفحة واحدة وتُستخدَم للأربع إدارات: تُمرَّر لها
@@ -25,9 +25,15 @@ import '../../core/constants/roles.dart';
 // والتعطيل والحذف من النظام.
 //
 // ربط المشاريع حسب الدور (من AppRoles):
-// • مهندس المشروع: مشروع واحد (projectId).
+// • مهندس المشروع والمحاسب: مشروع واحد (projectId/projectCode/‏
+//   projectName). المحاسب يجوز تركه بلا ربط ليعمل على كل
+//   مشاريع الوحدة.
 // • مشرف المشروع ومراقب الحركة: مشاريع متعددة (projectIds).
 // • بقية الأدوار: بلا ربط.
+//
+// ويمكن تغيير الربط بعد الإنشاء من قائمة الحساب ←
+// «ربط الحساب بمشروع» (تُحدَّث وثيقة المستخدم فيسري الربط على
+// شاشات الدور مباشرة عبر role_route).
 //
 // Firestore: users/{uid} بنفس حقول النظام الحالية
 // (name, username, phone, authEmail, role, projectId(s),
@@ -328,16 +334,28 @@ class _DepartmentUsersPageState extends State<DepartmentUsersPage> {
             'اسم المستخدم: ${username.isEmpty ? '—' : username}'
             '${phone.isEmpty || phone == username ? '' : '  |  الهاتف: $phone'}'
             '${projectNames.isEmpty ? '' : '\nالمشاريع: ${projectNames.join('، ')}'}'
+            '${projectNames.isEmpty && AppRoles.bindsSingleProject(_currentRole) ? '\nغير مربوط بمشروع — يرى كل المشاريع' : ''}'
             '${isActive ? '' : '\nالحساب معطّل'}',
           ),
         ),
         isThreeLine: true,
         trailing: PopupMenuButton<String>(
           onSelected: (value) {
+            if (value == 'bind') _bindProject(doc, _currentRole);
             if (value == 'toggle') _toggleActive(doc);
             if (value == 'delete') _deleteUser(doc);
           },
           itemBuilder: (_) => <PopupMenuEntry<String>>[
+            if (AppRoles.bindsSingleProject(_currentRole) ||
+                AppRoles.bindsMultipleProjects(_currentRole))
+              PopupMenuItem(
+                value: 'bind',
+                child: Text(
+                  AppRoles.bindsSingleProject(_currentRole)
+                      ? 'ربط الحساب بمشروع'
+                      : 'ربط الحساب بمشاريع',
+                ),
+              ),
             PopupMenuItem(
               value: 'toggle',
               child: Text(isActive ? 'تعطيل الحساب' : 'تفعيل الحساب'),
@@ -407,6 +425,277 @@ class _DepartmentUsersPageState extends State<DepartmentUsersPage> {
   }
 
   // ==========================================================
+  // ربط حساب قائم بمشروع (أو بمشاريع)
+  // ==========================================================
+  //
+  // الربط يُكتب في `users/{uid}` بنفس حقول الإنشاء
+  // (projectId/projectCode/projectName للمشروع الواحد،
+  // وprojectIds/projectNames للمشاريع المتعددة)، فيقرأه
+  // التوجيه في role_route ويقيّد شاشات الدور بمشروعه.
+  //
+  // المحاسب (project_accountant) يُربط بمشروع واحد، ويجوز
+  // تركه بلا ربط ليعمل على كل مشاريع الوحدة.
+
+  Future<void> _bindProject(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    String role,
+  ) async {
+    final bool single = AppRoles.bindsSingleProject(role);
+    final bool multi = AppRoles.bindsMultipleProjects(role);
+    if (!single && !multi) return;
+
+    final Map<String, dynamic> data = doc.data();
+
+    String selectedId = (data['projectId'] ?? '').toString().trim();
+    String selectedCode = (data['projectCode'] ?? '').toString().trim();
+    String selectedName = (data['projectName'] ?? '').toString().trim();
+
+    final List<String> ids = <String>[];
+    final List<String> names = <String>[];
+
+    final dynamic rawIds = data['projectIds'];
+    final dynamic rawNames = data['projectNames'];
+    final List<dynamic> nameList = rawNames is Iterable
+        ? rawNames.toList()
+        : <dynamic>[rawNames];
+
+    if (rawIds is Iterable) {
+      final List<dynamic> idList = rawIds.toList();
+      for (int i = 0; i < idList.length; i++) {
+        final String id = (idList[i] ?? '').toString().trim();
+        if (id.isEmpty) continue;
+        ids.add(id);
+        names.add(
+          i < nameList.length ? (nameList[i] ?? '').toString().trim() : '',
+        );
+      }
+    }
+
+    // المحاسب يجوز تركه بلا مشروع (يعمل على الوحدة كاملة).
+    final bool allowNoProject = role == AppRoles.projectAccountant;
+
+    final String userLabel = (data['name'] ?? '').toString().trim().isEmpty
+        ? (data['username'] ?? '').toString()
+        : (data['name'] ?? '').toString();
+
+    bool loading = false;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Directionality(
+              textDirection: TextDirection.rtl,
+              child: AlertDialog(
+                title: Text(
+                  single ? 'ربط $userLabel بمشروع' : 'ربط $userLabel بمشاريع',
+                ),
+                content: SizedBox(
+                  width: 520,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      Text(
+                        single
+                            ? 'يقتصر عمل ${AppRoles.label(role)} على '
+                                'سندات وقيود وصندوق المشروع المختار.'
+                            : 'يعمل ${AppRoles.label(role)} على المشاريع '
+                                'المختارة فقط.',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      if (single)
+                        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                          stream: _projects.snapshots(),
+                          builder: (context, snapshot) {
+                            final docs = _sortedProjects(snapshot.data);
+                            final bool hasSelected = selectedId.isNotEmpty &&
+                                docs.any((d) => d.id == selectedId);
+                            final String? initialValue = hasSelected
+                                ? selectedId
+                                : (allowNoProject ? '' : null);
+
+                            return DropdownButtonFormField<String>(
+                              key: ValueKey<String>(
+                                'bind-project-$selectedId-${docs.length}',
+                              ),
+                              initialValue: initialValue,
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                labelText: 'المشروع',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                                prefixIcon:
+                                    Icon(Icons.apartment_outlined),
+                              ),
+                              hint: const Text('اختر المشروع'),
+                              items: <DropdownMenuItem<String>>[
+                                if (allowNoProject)
+                                  const DropdownMenuItem<String>(
+                                    value: '',
+                                    child: Text(
+                                      'كل مشاريع الوحدة (بلا ربط)',
+                                    ),
+                                  ),
+                                ...docs.map(
+                                  (d) => DropdownMenuItem<String>(
+                                    value: d.id,
+                                    child: Text(
+                                      _projectLabel(d.data()),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              onChanged: loading
+                                  ? null
+                                  : (String? value) {
+                                      if (value == null) return;
+                                      setDialogState(() {
+                                        if (value.isEmpty) {
+                                          selectedId = '';
+                                          selectedCode = '';
+                                          selectedName = '';
+                                          return;
+                                        }
+                                        final selected = docs
+                                            .firstWhere((d) => d.id == value);
+                                        selectedId = value;
+                                        selectedCode =
+                                            (selected.data()['code'] ?? '')
+                                                .toString()
+                                                .trim();
+                                        selectedName =
+                                            (selected.data()['name'] ?? '')
+                                                .toString();
+                                      });
+                                    },
+                            );
+                          },
+                        ),
+                      if (multi)
+                        _multiProjectsField(
+                          selectedProjectIds: ids,
+                          onToggle: (id, name, selected) {
+                            setDialogState(() {
+                              if (selected) {
+                                if (!ids.contains(id)) {
+                                  ids.add(id);
+                                  names.add(name);
+                                }
+                              } else {
+                                final int index = ids.indexOf(id);
+                                if (index >= 0) {
+                                  ids.removeAt(index);
+                                  if (index < names.length) {
+                                    names.removeAt(index);
+                                  }
+                                }
+                              }
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+                actions: <Widget>[
+                  TextButton(
+                    onPressed: loading
+                        ? null
+                        : () => Navigator.pop(dialogContext),
+                    child: const Text('إلغاء'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: loading
+                        ? null
+                        : () async {
+                            if (single &&
+                                selectedId.isEmpty &&
+                                !allowNoProject) {
+                              _showMessage('اختر المشروع', error: true);
+                              return;
+                            }
+                            if (multi && ids.isEmpty) {
+                              _showMessage(
+                                'اختر مشروعًا واحدًا على الأقل',
+                                error: true,
+                              );
+                              return;
+                            }
+
+                            final List<String> finalIds = single
+                                ? (selectedId.isEmpty
+                                    ? <String>[]
+                                    : <String>[selectedId])
+                                : List<String>.of(ids);
+                            final List<String> finalNames = single
+                                ? (selectedName.isEmpty
+                                    ? <String>[]
+                                    : <String>[selectedName])
+                                : List<String>.of(names);
+
+                            setDialogState(() => loading = true);
+                            try {
+                              await _users.doc(doc.id).update(
+                                <String, dynamic>{
+                                  'projectId': finalIds.isEmpty
+                                      ? ''
+                                      : finalIds.first,
+                                  'projectCode': single ? selectedCode : '',
+                                  'projectName': finalNames.isEmpty
+                                      ? ''
+                                      : finalNames.first,
+                                  'projectIds': finalIds,
+                                  'projectNames': finalNames,
+                                  'updatedAt':
+                                      FieldValue.serverTimestamp(),
+                                },
+                              );
+                              loading = false;
+                              if (dialogContext.mounted) {
+                                Navigator.pop(dialogContext);
+                              }
+                              _showMessage(
+                                finalIds.isEmpty
+                                    ? 'تم فصل الحساب عن المشاريع'
+                                    : 'تم ربط الحساب بالمشروع',
+                              );
+                            } catch (error) {
+                              setDialogState(() => loading = false);
+                              _showMessage(
+                                'تعذر ربط الحساب: $error',
+                                error: true,
+                              );
+                            }
+                          },
+                    icon: loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.link),
+                    label: Text(loading ? 'جارٍ الحفظ...' : 'حفظ الربط'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ==========================================================
   // إنشاء حساب جديد بدور محدد
   // ==========================================================
 
@@ -424,6 +713,7 @@ class _DepartmentUsersPageState extends State<DepartmentUsersPage> {
 
     String? selectedProjectId;
     String selectedProjectName = '';
+    String selectedProjectCode = '';
     List<String> selectedProjectIds = <String>[];
     List<String> selectedProjectNames = <String>[];
 
@@ -518,10 +808,11 @@ class _DepartmentUsersPageState extends State<DepartmentUsersPage> {
                           if (singleProject)
                             _singleProjectField(
                               selectedProjectId: selectedProjectId,
-                              onChanged: (id, name) {
+                              onChanged: (id, code, name) {
                                 setDialogState(() {
                                   selectedProjectId = id;
                                   selectedProjectName = name;
+                                  selectedProjectCode = code;
                                 });
                               },
                             ),
@@ -585,7 +876,11 @@ class _DepartmentUsersPageState extends State<DepartmentUsersPage> {
                                 (selectedProjectId == null ||
                                     selectedProjectId!.isEmpty)) {
                               _showMessage(
-                                'اختر المشروع الذي سيديره ${AppRoles.label(role)}',
+                                role == AppRoles.projectAccountant
+                                    ? 'اختر المشروع الذي يحاسب عليه '
+                                        '${AppRoles.label(role)}'
+                                    : 'اختر المشروع الذي سيديره '
+                                        '${AppRoles.label(role)}',
                                 error: true,
                               );
                               return;
@@ -644,6 +939,8 @@ class _DepartmentUsersPageState extends State<DepartmentUsersPage> {
                                     'projectId': singleId,
                                   if (singleProject)
                                     'projectName': selectedProjectName,
+                                  if (singleProject)
+                                    'projectCode': selectedProjectCode,
                                   'projectIds': finalProjectIds,
                                   'projectNames': finalProjectNames,
                                   'active': active,
@@ -744,8 +1041,8 @@ class _DepartmentUsersPageState extends State<DepartmentUsersPage> {
   }
 
   // ==========================================================
-  // اختيار مشروع واحد (مهندس المشروع) / مشاريع متعددة
-  // (مشرف المشروع ومراقب الحركة) من مشاريع النظام.
+  // اختيار مشروع واحد (مهندس المشروع والمحاسب) / مشاريع
+  // متعددة (مشرف المشروع ومراقب الحركة) من مشاريع النظام.
   // ==========================================================
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortedProjects(
@@ -775,7 +1072,7 @@ class _DepartmentUsersPageState extends State<DepartmentUsersPage> {
 
   Widget _singleProjectField({
     required String? selectedProjectId,
-    required void Function(String id, String name) onChanged,
+    required void Function(String id, String code, String name) onChanged,
   }) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _projects.snapshots(),
@@ -810,7 +1107,11 @@ class _DepartmentUsersPageState extends State<DepartmentUsersPage> {
             onChanged: (String? value) {
               if (value == null) return;
               final doc = docs.firstWhere((d) => d.id == value);
-              onChanged(value, (doc.data()['name'] ?? '').toString());
+              onChanged(
+                value,
+                (doc.data()['code'] ?? '').toString().trim(),
+                (doc.data()['name'] ?? '').toString(),
+              );
             },
             validator: (String? value) =>
                 (value == null || value.isEmpty) ? 'اختر المشروع' : null,

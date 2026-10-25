@@ -23,8 +23,8 @@ import 'org_chart_page.dart';
 //   ومشرف المشروع والبنود والمواد (ProjectsDeptDashboardPage).
 // • مدير إدارة الحركة: المحروقات والورشة ومراقب الحركة
 //   والمعدات (MovementDashboardPage).
-// • المدير المالي: إدارة الحسابات ومحاسب المشروع
-//   (AccountantPage).
+// • المدير المالي: المحاسب، ثم السندات والصندوق والقيود
+//   (AccountantPage / AccountingDashboardPage).
 //
 // لذلك لا توجد هنا أدوات مشاريع أو مستخدمين عامين أو بنود
 // أو مواد أو معدات — تبقى فقط: المحافظات والمديريات،
@@ -215,7 +215,10 @@ class _AdminPageState extends State<AdminPage> {
                           Text(
                             'تنشئ من هنا فقط: المحافظات والمديريات، '
                             'وحسابات مديري الإدارات الثلاثة. وكل إدارة '
-                            'تنشئ بقية مستخدميها وأعمالها من صفحتها.',
+                            'تنشئ بقية مستخدميها وأعمالها من صفحتها — '
+                            'فالمدير المالي ينشئ المحاسب ويحدد مشروعه، '
+                            'والمحاسب يدير سندات ذلك المشروع وصندوقه '
+                            'وقيوده.',
                           ),
                         ],
                       ),
@@ -280,7 +283,8 @@ class _AdminPageState extends State<AdminPage> {
               title: 'مديرو الإدارات الثلاثة',
               subtitle:
                   'مدير إدارة المشاريع • مدير إدارة الحركة • المدير المالي\n'
-                  'هؤلاء فقط من تنشئ حساباتهم — وبقية المستخدمين عند إداراتهم',
+                  'المدير المالي ينشئ بدوره المحاسب ويحدد له مشروعه، '
+                  'فيدير سندات ذلك المشروع وصندوقه وقيوده',
               onTap: () => _push(
                 DepartmentUsersPage(
                   title: 'مديرو الإدارات',
@@ -291,6 +295,8 @@ class _AdminPageState extends State<AdminPage> {
                 ),
               ),
             ),
+            _section('مسار الإدارة المالية'),
+            _financeChainCard(),
             _section('الهيكل والتنظيم'),
             _tile(
               icon: Icons.account_tree_outlined,
@@ -301,6 +307,105 @@ class _AdminPageState extends State<AdminPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // ==========================================================
+  // مسار الإدارة المالية: المشرف ← المدير المالي ← المحاسب
+  // ==========================================================
+
+  Widget _financeChainCard() {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 5),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: const <Widget>[
+                Icon(Icons.account_balance, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'الإدارة المالية: من ينشئ مَن، ومن يدخل ماذا',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _financeStep(
+              number: '1',
+              icon: Icons.admin_panel_settings,
+              title: 'المشرف الرئيسي ينشئ المدير المالي',
+              text: 'من قسم «مديرو الإدارات الثلاثة» أعلاه (الاسم + '
+                  'الهاتف + اسم المستخدم + كلمة السر).',
+            ),
+            _financeStep(
+              number: '2',
+              icon: Icons.person_add_alt_1,
+              title: 'المدير المالي ينشئ المحاسب ويحدد مشروعه',
+              text: 'يدخل بلوحته ثم «مستخدمو الإدارة المالية» وينشئ '
+                  'حساب المحاسب ويختار المشروع الذي يحاسب عليه (أو '
+                  'يتركه لكل المشاريع).',
+            ),
+            _financeStep(
+              number: '3',
+              icon: Icons.receipt_long,
+              title: 'المحاسب مسؤول عن أعمال مشروعه',
+              text: 'سندات الصرف وسندات القبض، والصندوق ورصيده، '
+                  'والقيود اليومية — كلها في حدود مشروعه — وكل سند '
+                  'يُرحَّل تلقائيًا إلى قيد يومية متوازن.',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _financeStep({
+    required String number,
+    required IconData icon,
+    required String title,
+    required String text,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          CircleAvatar(
+            radius: 13,
+            child: Text(
+              number,
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Icon(icon, size: 18, color: Colors.black54),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  title,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  text,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.black54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

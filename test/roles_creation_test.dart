@@ -48,13 +48,22 @@ void main() {
       );
     });
 
-    test('المدير المالي ينشئ كل إدارته', () {
+    test('المدير المالي ينشئ المحاسب فقط', () {
       expect(
         AppRoles.creatableBy(AppRoles.financialManager),
-        <String>[
-          AppRoles.accountsManager,
-          AppRoles.projectAccountant,
-        ],
+        <String>[AppRoles.projectAccountant],
+      );
+
+      // المحاسب يتبع المدير المالي مباشرة.
+      expect(
+        AppRoles.parentOf(AppRoles.projectAccountant),
+        AppRoles.financialManager,
+      );
+
+      // «إدارة الحسابات» دور قديم صار مكافئًا للمحاسب.
+      expect(
+        AppRoles.normalize(AppRoles.accountsManager),
+        AppRoles.projectAccountant,
       );
     });
 
@@ -117,6 +126,49 @@ void main() {
           creators[role]?.length,
           1,
           reason: 'الدور $role يجب أن ينشئه واحد فقط: ${creators[role]}',
+        );
+      }
+    });
+  });
+
+  // ============================================================
+  // ربط الأدوار بالمشاريع
+  // ============================================================
+
+  group('ربط المحاسب بالمشروع', () {
+    test('المحاسب مربوط بمشروع واحد', () {
+      expect(AppRoles.bindsSingleProject(AppRoles.projectAccountant), isTrue);
+      expect(AppRoles.bindsMultipleProjects(AppRoles.projectAccountant), isFalse);
+
+      // الحساب القديم «محاسب» يُعامَل محاسبًا بعد التطبيع.
+      expect(AppRoles.bindsSingleProject(AppRoles.accountant), isTrue);
+      expect(AppRoles.bindsSingleProject(AppRoles.accountsManager), isTrue);
+    });
+
+    test('لا يُمنع المحاسب من الدخول قبل الربط', () {
+      expect(
+        AppRoles.requiresProjectBinding(AppRoles.projectAccountant),
+        isFalse,
+      );
+      expect(
+        AppRoles.requiresProjectBinding(AppRoles.projectEngineer),
+        isTrue,
+      );
+    });
+
+    test('بقية الأدوار غير الميدانية لا تُربط بمشروع', () {
+      for (final String role in <String>[
+        AppRoles.generalManager,
+        AppRoles.projectsDeptManager,
+        AppRoles.financialManager,
+        AppRoles.qualityCostManager,
+        AppRoles.fuelManager,
+        AppRoles.workshopManager,
+      ]) {
+        expect(
+          AppRoles.bindsSingleProject(role),
+          isFalse,
+          reason: 'الدور $role يجب ألا يُربط بمشروع واحد',
         );
       }
     });
