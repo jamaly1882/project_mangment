@@ -47,6 +47,23 @@ class FirestoreService {
   /// السجل القديم لإسناد البنود إلى السائقين.
   CollectionReference itemDriversRef() => _db.collection('item_drivers');
 
+  // ===== الوحدة المالية (AccountingService) =====
+
+  /// سندات القبض والصرف — كل سند مرحّل إلى قيد يومية.
+  CollectionReference vouchersRef() => _db.collection('vouchers');
+
+  /// القيود اليومية (يدوية + قيود السندات).
+  CollectionReference journalEntriesRef() =>
+      _db.collection('journal_entries');
+
+  /// عدّادات أرقام السندات والقيود (وثيقة main).
+  DocumentReference financeCountersRef() =>
+      _db.collection('finance_counters').doc('main');
+
+  /// إعدادات الوحدة المالية (وثيقة opening: الرصيد الافتتاحي).
+  DocumentReference financeSettingsRef() =>
+      _db.collection('finance_settings').doc('opening');
+
   // ===== CRUD for Mahfth =====
   Future<void> addMahfth(Map<String, dynamic> data) => mahfthRef().add(data);
 

@@ -30,6 +30,11 @@ service cloud.firestore {
     // ومجموعات الحركة والديزل والورشة: diesel_consumption_logs،
     // maintenance_logs، equipment_assignments، project_fuel_daily
     // (يكتبها EquipmentService بمستخدم مسجّل الدخول ✓).
+    // ومجموعات الوحدة المالية: vouchers، journal_entries،
+    // finance_counters، finance_settings
+    // (يكتبها المحاسب فقط في الواجهة، والقراءة للمدير المالي أيضًا ✓).
+    // الرصيد الافتتاحي: finance_settings/opening للوحدة، و
+    // finance_settings/opening_<projectId> لكل مشروع مربوط بمحاسب.
     match /{document=**} {
       allow read, write: if signedIn();
     }

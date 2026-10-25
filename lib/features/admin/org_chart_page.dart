@@ -733,6 +733,7 @@ class _OrgChartPageState extends State<OrgChartPage> {
 
     String? singleProjectId;
     String? singleProjectName;
+    String singleProjectCode = '';
 
     final bool singleProject =
         AppRoles.bindsSingleProject(node.roleKey);
@@ -877,10 +878,12 @@ class _OrgChartPageState extends State<OrgChartPage> {
                               singleId:
                                   singleProjectId,
                               onSingleChanged:
-                                  (id, name) {
+                                  (id, code, name) {
                                 setDialogState(() {
                                   singleProjectId =
                                       id;
+                                  singleProjectCode =
+                                      code;
                                   singleProjectName =
                                       name;
                                 });
@@ -1018,6 +1021,10 @@ class _OrgChartPageState extends State<OrgChartPage> {
                                 payload['projectId'] =
                                     singleProjectId ??
                                         '';
+                                payload['projectName'] =
+                                    singleProjectName ?? '';
+                                payload['projectCode'] =
+                                    singleProjectCode;
                                 payload[
                                         'projectIds'] =
                                     singleProjectId ==
@@ -1600,7 +1607,7 @@ class _ProjectPicker extends StatelessWidget {
   final List<String> selectedIds;
   final List<String> selectedNames;
   final String? singleId;
-  final void Function(String? id, String? name)
+  final void Function(String? id, String? code, String? name)
       onSingleChanged;
   final VoidCallback onMultiChanged;
 
@@ -1690,6 +1697,7 @@ class _ProjectPicker extends StatelessWidget {
                       onSingleChanged(
                         null,
                         null,
+                        null,
                       );
                       return;
                     }
@@ -1704,6 +1712,9 @@ class _ProjectPicker extends StatelessWidget {
 
                     onSingleChanged(
                       id,
+                      (data['code'] ?? '')
+                          .toString()
+                          .trim(),
                       (data['name'] ?? '')
                           .toString(),
                     );
@@ -1824,8 +1835,9 @@ const List<_WorkflowStep> _workflowSteps =
     <_WorkflowStep>[
   _WorkflowStep(
     title: '1) المشرف الرئيسي',
-    text: 'يحدد المحافظة والمديرية، ثم ينشئ حساب مدير '
-        'إدارة المشاريع (الاسم، الهاتف، اسم المستخدم، '
+    text: 'يحدد المحافظة والمديرية، ثم ينشئ حسابات رؤساء '
+        'الإدارات الثلاثة: مدير إدارة المشاريع، ومدير إدارة '
+        'الحركة، والمدير المالي (الاسم، الهاتف، اسم المستخدم، '
         'كلمة السر).',
     icon: Icons.admin_panel_settings,
     color: AppColors.generalManager,
@@ -1862,9 +1874,11 @@ const List<_WorkflowStep> _workflowSteps =
     color: AppColors.movementMonitor,
   ),
   _WorkflowStep(
-    title: '6) محاسب المشروع',
-    text: 'يتابع حسابات مشروعه: الصندوق، المصروفات، '
-        'المستخلصات، والتكاليف الفعلية.',
+    title: '6) المدير المالي ← المحاسب',
+    text: 'المدير المالي ينشئ المحاسب من لوحته ويحدد له مشروعه. '
+        'والمحاسب مسؤول عن أعمال ذلك المشروع: سندات الصرف '
+        'والقبض، والصندوق ورصيده، والقيود اليومية — وكل سند '
+        'يُرحَّل تلقائيًا إلى قيد يومية متوازن.',
     icon: Icons.receipt_long,
     color: AppColors.projectAccountant,
   ),

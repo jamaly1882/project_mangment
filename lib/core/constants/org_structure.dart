@@ -140,10 +140,13 @@ class OrgStructure {
       icon: Icons.account_balance,
       color: AppColors.financialManager,
       duties: 'الإشراف المالي العام، واعتماد الموازنات والصرف، '
-          'ومتابعة الالتزامات المالية للمشاريع.',
+          'ومتابعة الالتزامات المالية. ينشئ المحاسب الذي يدير '
+          'سندات الصرف والقبض والصندوق والقيود اليومية، ويراجع '
+          'أعماله ويعتمدها.',
       creates: <String>[
-        'إدارة الحسابات',
-        'محاسب مشروع',
+        'حساب المحاسب',
+        'اعتماد الموازنات',
+        'مراجعة الصندوق والقيود',
       ],
     ),
 
@@ -214,18 +217,6 @@ class OrgStructure {
       ],
     ),
 
-    OrgNode(
-      roleKey: AppRoles.accountsManager,
-      parentKey: AppRoles.financialManager,
-      title: 'إدارة الحسابات',
-      icon: Icons.account_balance_wallet,
-      color: AppColors.accountsManager,
-      duties: 'القيود اليومية وصندوق المشروع وتسوية حسابات المشاريع.',
-      creates: <String>[
-        'محاسب مشروع',
-      ],
-    ),
-
     // ========================================================
     // المستوى 3 و 4 — الميدان والتنفيذ
     // ========================================================
@@ -260,14 +251,22 @@ class OrgStructure {
 
     OrgNode(
       roleKey: AppRoles.projectAccountant,
-      parentKey: AppRoles.accountsManager,
-      title: 'محاسب المشروع',
+      parentKey: AppRoles.financialManager,
+      title: 'المحاسب',
       icon: Icons.receipt_long,
       color: AppColors.projectAccountant,
-      duties: 'يتابع حسابات مشروعه من صندوق ومصروفات ومستخلصات '
-          'وتكاليف فعلية.',
+      duties: 'المسؤول عن كل الأعمال المحاسبية في الوحدة: سندات القبض '
+          'وسندات الصرف، والصندوق (الرصيد الافتتاحي والحركة اليومية '
+          'والرصيد الجاري)، والقيود اليومية، والتقارير المالية.',
+      creates: <String>[
+        'سند قبض',
+        'سند صرف',
+        'قيود يومية',
+        'حركة الصندوق',
+      ],
       legacyRoles: <String>[
         AppRoles.accountant,
+        AppRoles.accountsManager,
       ],
     ),
   ];

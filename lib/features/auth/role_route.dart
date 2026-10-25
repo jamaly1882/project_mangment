@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants/roles.dart';
 import '../accountant/accountant_page.dart';
+import '../accounting/accounting_service.dart';
 import '../admin/admin_page.dart';
 import '../admin/projects_dept_dashboard_page.dart';
 import '../driver/driver_page.dart';
@@ -137,8 +138,18 @@ RoleRoute resolveRoleRoute({
 
     case AppRoles.accountant:
     case AppRoles.projectAccountant:
-    case AppRoles.financialManager:
     case AppRoles.accountsManager:
+      // المحاسب مربوط بمشروع (projectId من اختيار المدير المالي)،
+      // فتُقيَّد كل شاشات الوحدة المالية في مشروعه فقط. إن لم يكن
+      // مربوطًا بعد، تُعرض له كل مشاريع الوحدة كما كانت.
+      return RoleRoute.page(
+        AccountantPage(
+          scope: AccountingScope.fromUserData(data),
+        ),
+      );
+
+    case AppRoles.financialManager:
+      // المدير المالي يشرف على الوحدة كاملة، فلا يُقيَّد بمشروع.
       return const RoleRoute.page(AccountantPage());
 
     // ==========================================================
