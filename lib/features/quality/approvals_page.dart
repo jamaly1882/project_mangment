@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -70,7 +69,9 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
             ),
             AppSpacing.verticalLg,
             Expanded(
-              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              // الخدمة تُرجع نماذج الطلبات جاهزة (مُفلترة في الذاكرة)،
+              // فلا استعلام مركّب يحتاج فهرسًا.
+              child: StreamBuilder<List<ItemApproval>>(
                 stream: ItemApprovals.stream(kind: widget.kind),
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {
@@ -84,22 +85,13 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
                     return const AppLoading(message: 'جاري تحميل الطلبات...');
                   }
 
-                  final approvals = (snapshot.data?.docs ??
-                          <QueryDocumentSnapshot<Map<String, dynamic>>>[])
-                      .map(ItemApproval.fromDoc)
+                  final approvals = (snapshot.data ?? <ItemApproval>[])
                       .where(
                         (a) => linkedOnly
                             ? widget.projectIds.contains(a.projectId)
                             : true,
                       )
-                      .toList()
-                    ..sort((a, b) {
-                      if (a.isPending != b.isPending) {
-                        return a.isPending ? -1 : 1;
-                      }
-                      return (b.createdAt ?? DateTime(2000))
-                          .compareTo(a.createdAt ?? DateTime(2000));
-                    });
+                      .toList();
 
                   if (approvals.isEmpty) {
                     return AppEmpty(
@@ -178,19 +170,28 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
           if (_isExtra) ...[
             AppSpacing.verticalXs,
             AppInfoRow(
-              label: 'النسبة المطلوبة',
-              value: approval.approvedPercent > 0
-                  ? '${ProjectCosts.formatNumber(approval.approvedPercent)}% (معتمدة)'
-                  : '${ProjectCosts.formatNumber(approval.requestedPercent)}%',
-              icon: Icons.percent,
+              label: 'الكمية الإضافية المطلوبة',
+              value: '+${ProjectCosts.formatNumber(approval.effectiveQuantity)} '
+                  '${approval.unit} '
+                  '(${ProjectCosts.formatNumber(approval.effectivePercent)}%)',
+              icon: Icons.add_chart,
             ),
             AppSpacing.verticalXs,
             AppInfoRow(
-              label: 'أقصى كمية مسموحة بعد الموافقة',
+              label: 'أقصى كمية إضافية مسموحة',
               value:
-                  '${ProjectCosts.formatNumber(approval.contractQuantity * (1 + maxExtraQuantityPercent / 100))} '
-                  '${approval.unit}',
+                  '${ProjectCosts.formatNumber(approval.contractQuantity * maxExtraQuantityPercent / 100)} '
+                  '${approval.unit}'
+                  ' (${ProjectCosts.formatNumber(maxExtraQuantityPercent)}%)',
               icon: Icons.speed_outlined,
+            ),
+            AppSpacing.verticalXs,
+            AppInfoRow(
+              label: 'إجمالي المنفذ بعد الموافقة',
+              value:
+                  '${ProjectCosts.formatNumber(approval.contractQuantity + approval.effectiveQuantity)} '
+                  '${approval.unit}',
+              icon: Icons.stacked_line_chart,
             ),
           ] else ...[
             AppSpacing.verticalXs,
@@ -233,17 +234,34 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
   }
 
   Future<void> _approveExtra(ItemApproval approval) async {
-    final percent = await _askNumber(
+    final String unit = approval.unit;
+    final double contract = approval.contractQuantity;
+
+    // يُدخل مدير الجودة الكمية بالوحدات (لغة الميدان)، وتُحوَّل إلى
+    // نسبة لأن حساب المباحات في البند مبني على النسبة.
+    final double maxExtra = contract > 0
+        ? contract * maxExtraQuantityPercent / 100
+        : approval.effectiveQuantity;
+
+    final String unitLabel = unit.isEmpty ? '' : ' ($unit)';
+
+    final quantity = await _askNumber(
       title: 'الموافقة على كمية إضافية',
-      label: 'النسبة من الكمية التعاقدية (%)',
-      max: maxExtraQuantityPercent,
-      initial: approval.requestedPercent > 0
-          ? approval.requestedPercent
-          : maxExtraQuantityPercent,
-      hint: 'الحد الأقصى $maxExtraQuantityPercent%',
+      label: 'الكمية الإضافية الموافق عليها$unitLabel',
+      max: maxExtra <= 0 ? 1 : maxExtra,
+      initial: approval.requestedQuantity > 0
+          ? approval.requestedQuantity
+          : maxExtra,
+      hint: 'الحد الأقصى ${ProjectCosts.formatNumber(maxExtra)} $unit',
     );
 
-    if (percent == null) return;
+    if (quantity == null || quantity <= 0) return;
+
+    final double percent = contract > 0
+        ? (quantity / contract * 100)
+            .clamp(0, maxExtraQuantityPercent)
+            .toDouble()
+        : 0;
 
     final user = _auth.currentUser;
 
@@ -257,8 +275,9 @@ class _ApprovalsPageState extends State<ApprovalsPage> {
       if (!mounted) return;
       AppWidgets.showSuccess(
         context,
-        'تمت الموافقة على ${ProjectCosts.formatNumber(percent)}% '
-        'كمية إضافية، وستظهر للمشرف.',
+        'تمت الموافقة على ${ProjectCosts.formatNumber(quantity)} $unit '
+        'كمية إضافية '
+        '(${ProjectCosts.formatNumber(percent)}%)، وستظهر للمشرف.',
       );
       setState(() {});
     } catch (e) {

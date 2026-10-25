@@ -81,6 +81,9 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   /// مباحات البند: الكمية الإضافية والزمن (من مدير الجودة).
   ItemAllowance? _allowance;
 
+  /// طلب كمية إضافية قيد مراجعة مدير الجودة (إن وُجد).
+  ItemApproval? _pendingExtra;
+
   double? _defaultWorkingHours;
   double? _defaultFuelQuantity;
   double? _defaultOilQuantity;
@@ -391,9 +394,20 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
         debugPrint('تعذر حساب تكاليف المشروع: $e');
       }
 
+      // هل يوجد طلب كمية إضافية قيد المراجعة عند مدير الجودة؟
+      ItemApproval? pendingExtra;
+      try {
+        pendingExtra = await ItemApprovals.pendingFor(
+          itemId: widget.itemId,
+        );
+      } catch (e) {
+        debugPrint('تعذر تحميل حالة طلب الكمية الإضافية: $e');
+      }
+
       if (!mounted) return;
       setState(() {
         _itemData = item;
+        _pendingExtra = pendingExtra;
         _detailsData = detailsDoc.exists
             ? details
             : null;
@@ -568,6 +582,325 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
   // تسجيل الكمية المنفذة
   // ============================================================
 
+  // ============================================================
+  // الكمية الإضافية: الطلب من مدير إدارة الجودة
+  // ============================================================
+
+  /// يرسل طلبًا إلى مدير إدارة الجودة ويعيد هل نجح الإرسال.
+  ///
+  /// كل الطلبات تمر من هنا؛ والفشل يُعرض برسالة عربية صريحة
+  /// بدل أن يضيع الطلب بصمت.
+  Future<bool> _sendApprovalRequest({
+    required String kind,
+    required double contractQuantity,
+    required double executedQuantity,
+    required double totalAfter,
+    required double requestedQuantity,
+    required double requestedPercent,
+    String note = '',
+  }) async {
+    final user = _auth.currentUser;
+
+    if (user == null) {
+      if (mounted) {
+        AppWidgets.showError(
+          context,
+          'انتهت جلسة تسجيل الدخول؛ سجل الدخول مجددًا.',
+        );
+      }
+      return false;
+    }
+
+    final item = _itemData ?? const <String, dynamic>{};
+
+    try {
+      await ItemApprovals.request(
+        itemId: widget.itemId,
+        projectId: widget.projectId,
+        kind: kind,
+        itemName: _itemName(item),
+        typeName: _stringValue(item['typeName']),
+        unit: _stringValue(item['unit']),
+        contractQuantity: contractQuantity,
+        executedQuantity: executedQuantity,
+        requestedQuantity: requestedQuantity,
+        requestedTotal: totalAfter,
+        requestedPercent: requestedPercent,
+        note: note,
+        requestedBy: user.uid,
+      );
+    } on ItemApprovalException catch (error) {
+      if (mounted) AppWidgets.showError(context, error.message);
+      return false;
+    } catch (error) {
+      if (mounted) {
+        AppWidgets.showError(
+          context,
+          'تعذر إرسال الطلب إلى مدير الجودة:\n$error',
+        );
+      }
+      return false;
+    }
+
+    // تحديث حالة «قيد المراجعة» في الصفحة فورًا.
+    ItemApproval? pending;
+    try {
+      pending = await ItemApprovals.pendingFor(itemId: widget.itemId);
+    } catch (_) {
+      pending = null;
+    }
+
+    if (mounted) setState(() => _pendingExtra = pending);
+
+    return true;
+  }
+
+  /// نافذة «كمية إضافية».
+  ///
+  /// تُفتح في حالتين:
+  ///   1) تلقائيًا حين يتجاوز مجموع (المنفذة + المدخلة) الكمية التعاقدية.
+  ///   2) من زر «طلب كمية إضافية» في بطاقة البند.
+  ///
+  /// الكمية المطلوبة تُدخل بالوحدات (لا بالنسبة) لأنها لغة الميدان،
+  /// وتُحوَّل إلى نسبة بسقف 20% لحظة الإرسال.
+  Future<void> _showExtraQuantityDialog({
+    required double suggestedExtra,
+    double enteredQuantity = 0,
+  }) async {
+    final item = _itemData ?? const <String, dynamic>{};
+    final unit = _stringValue(item['unit']);
+    final allowance =
+        _allowance ?? ItemAllowance.fromData(item);
+    final double contract = allowance.contractQuantity;
+    final double executed = allowance.executedQuantity;
+
+    if (contract <= 0) {
+      AppWidgets.showWarning(
+        context,
+        'الكمية التعاقدية لهذا البند غير محددة، فلا يمكن طلب كمية '
+        'إضافية. راجع مدير المشروع لتحديد الكمية التعاقدية أولًا.',
+      );
+      return;
+    }
+
+    // سقف الكمية الإضافية = 20% من الكمية التعاقدية.
+    final double maxExtra =
+        contract * maxExtraQuantityPercent / 100;
+
+    final double initialExtra =
+        suggestedExtra.clamp(0, maxExtra).toDouble();
+
+    final controller = TextEditingController(
+      text: initialExtra > 0
+          ? ProjectCosts.toEditText(initialExtra)
+          : '',
+    );
+    final noteController = TextEditingController();
+
+    double extra = initialExtra;
+    String? errorText;
+
+    final input = await showDialog<_ExtraRequestInput>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final double total = contract + extra;
+            final double percent =
+                contract > 0 ? extra / contract * 100 : 0;
+
+            return AlertDialog(
+              title: const Row(
+                children: [
+                  Icon(Icons.add_chart, color: AppColors.warning),
+                  SizedBox(width: 10),
+                  Expanded(child: Text('كمية إضافية')),
+                ],
+              ),
+              content: SizedBox(
+                width: 430,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'مجموع الكمية المنفذة يتجاوز الكمية التعاقدية '
+                        'لهذا البند. أدخل الكمية الإضافية التي تحتاجها '
+                        'ويُرسل الطلب إلى مدير إدارة الجودة للموافقة.',
+                        style: AppTextStyles.bodySecondary,
+                      ),
+                      AppSpacing.verticalMd,
+                      AppInfoRow(
+                        label: 'الكمية التعاقدية',
+                        value: '${_formatNumber(contract)} $unit',
+                        icon: Icons.assignment_outlined,
+                      ),
+                      AppSpacing.verticalXs,
+                      AppInfoRow(
+                        label: 'الكمية المنفذة',
+                        value: '${_formatNumber(executed)} $unit',
+                        icon: Icons.done_all,
+                      ),
+                      if (enteredQuantity > 0) ...[
+                        AppSpacing.verticalXs,
+                        AppInfoRow(
+                          label: 'الكمية المدخلة الآن',
+                          value:
+                              '${_formatNumber(enteredQuantity)} $unit',
+                          icon: Icons.add,
+                        ),
+                      ],
+                      AppSpacing.verticalXs,
+                      AppInfoRow(
+                        label: 'أقصى كمية إضافية مسموحة',
+                        value: '${_formatNumber(maxExtra)} $unit '
+                            '(${_formatNumber(maxExtraQuantityPercent)}%)',
+                        icon: Icons.speed_outlined,
+                      ),
+                      AppSpacing.verticalMd,
+                      TextField(
+                        controller: controller,
+                        keyboardType:
+                            const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          labelText: 'الكمية الإضافية المطلوبة',
+                          hintText: 'مثال: 50',
+                          suffixText: unit.isEmpty ? null : unit,
+                          prefixIcon: const Icon(Icons.add_chart),
+                          errorText: errorText,
+                          border: const OutlineInputBorder(),
+                        ),
+                        onChanged: (value) {
+                          final double? parsed = _toDouble(value.trim());
+
+                          setDialogState(() {
+                            extra = parsed ?? 0;
+                            if (parsed == null || parsed <= 0) {
+                              errorText =
+                                  'أدخل كمية إضافية أكبر من صفر';
+                            } else if (parsed > maxExtra) {
+                              errorText =
+                                  'الحد الأقصى ${_formatNumber(maxExtra)} '
+                                  '$unit';
+                            } else {
+                              errorText = null;
+                            }
+                          });
+                        },
+                      ),
+                      AppSpacing.verticalSm,
+                      AppInfoRow(
+                        label: 'النسبة من الكمية التعاقدية',
+                        value: '${_formatNumber(percent)}%',
+                        icon: Icons.percent,
+                      ),
+                      AppSpacing.verticalXs,
+                      AppInfoRow(
+                        label: 'إجمالي المنفذ بعد الموافقة',
+                        value: '${_formatNumber(total)} $unit',
+                        icon: Icons.stacked_line_chart,
+                      ),
+                      AppSpacing.verticalSm,
+                      Text(
+                        'لا تُحفظ أي كمية الآن؛ بعد موافقة مدير الجودة '
+                        'يُضاف إلى الحد المسموح للبند وتستطيع تسجيل '
+                        'الكمية من جديد.',
+                        style: AppTextStyles.small,
+                      ),
+                      AppSpacing.verticalMd,
+                      TextField(
+                        controller: noteController,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: 'سبب الطلب (اختياري)',
+                          hintText: 'مثال: زيادة في أطوال الطريق',
+                          prefixIcon: Icon(Icons.notes_outlined),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('إلغاء'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    final double? parsed =
+                        _toDouble(controller.text.trim());
+
+                    if (parsed == null || parsed <= 0) {
+                      setDialogState(() {
+                        errorText = 'أدخل كمية إضافية أكبر من صفر';
+                      });
+                      return;
+                    }
+
+                    if (parsed > maxExtra) {
+                      setDialogState(() {
+                        errorText = 'الحد الأقصى '
+                            '${_formatNumber(maxExtra)} $unit';
+                      });
+                      return;
+                    }
+
+                    Navigator.pop(
+                      dialogContext,
+                      _ExtraRequestInput(
+                        extra: parsed,
+                        note: noteController.text.trim(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.send),
+                  label: const Text('إرسال إلى مدير الجودة'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    controller.dispose();
+    noteController.dispose();
+
+    if (!mounted || input == null) return;
+
+    final double percent =
+        (input.extra / contract * 100)
+            .clamp(0, maxExtraQuantityPercent)
+            .toDouble();
+
+    final bool sent = await _sendApprovalRequest(
+      kind: ApprovalKind.extraQuantity,
+      contractQuantity: contract,
+      executedQuantity: executed,
+      totalAfter: contract + input.extra,
+      requestedQuantity: input.extra,
+      requestedPercent: percent,
+      note: input.note.isEmpty
+          ? 'تجاوزت الكمية المنفذة الكمية التعاقدية'
+          : input.note,
+    );
+
+    if (!mounted || !sent) return;
+
+    AppWidgets.showSuccess(
+      context,
+      'تم إرسال طلب كمية إضافية ${_formatNumber(input.extra)} $unit '
+      'إلى مدير إدارة الجودة. '
+      'لن تُحفظ الكمية حتى تتم الموافقة.',
+    );
+  }
+
   /// يضيف الكمية التي يدخلها المشرف إلى `executedQuantity`
   /// في معاملة واحدة، فلا تضيع أي إضافة عند تعدد الأجهزة،
   /// ولا تتجاوز الكمية التعاقدية.
@@ -591,6 +924,65 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
         'انتهت جلسة تسجيل الدخول؛ سجل الدخول مجددًا.',
       );
       return;
+    }
+
+    // ==========================================================
+    // قراءة أحدث بيانات البند قبل القرار
+    // ==========================================================
+    // مدير الجودة قد يكون وافق للتو على كمية إضافية أو رفض الطلب،
+    // فالقرار لا يُبنى على بيانات قديمة (كان الطلب يظهر مرتين).
+    try {
+      final fresh =
+          await _firestore.collection('items').doc(widget.itemId).get();
+      final data = fresh.data();
+
+      if (fresh.exists && data != null) {
+        final freshAllowance = ItemAllowance.fromData(data);
+
+        ItemApproval? pending;
+        try {
+          pending = await ItemApprovals.pendingFor(itemId: widget.itemId);
+        } catch (_) {
+          pending = _pendingExtra;
+        }
+
+        if (mounted) {
+          setState(() {
+            _itemData = <String, dynamic>{...?_itemData, ...data};
+            _allowance = freshAllowance;
+            _pendingExtra = pending;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('تعذر تحديث بيانات البند قبل الحفظ: $e');
+    }
+
+    // ==========================================================
+    // قبل الكتابة: هل يتجاوز الإدخال الحد المسموح؟
+    // ==========================================================
+    // إن تجاوز، تُفتح واجهة «كمية إضافية» ويُرسل الطلب إلى مدير
+    // الجودة، ولا تُحفظ الكمية حتى يوافق (كما هو مطلوب).
+    final allowance =
+        _allowance ?? ItemAllowance.fromData(_itemData ?? const {});
+    final enteredDouble = entered;
+
+    if (!allowance.isTimeExpired) {
+      final plan = ExtraQuantityPlan.of(
+        contractQuantity: allowance.contractQuantity,
+        executedQuantity: allowance.executedQuantity,
+        enteredQuantity: enteredDouble,
+        approvedPercent: allowance.extraPercent,
+        extraApproved: allowance.extraApproved,
+      );
+
+      if (plan.needsRequest) {
+        await _showExtraQuantityDialog(
+          suggestedExtra: plan.excessQuantity,
+          enteredQuantity: enteredDouble,
+        );
+        return;
+      }
     }
 
     setState(() => _savingQuantity = true);
@@ -783,26 +1175,29 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
     } catch (e) {
       // رفع الطلب إلى مدير إدارة الجودة إن كان السبب كمية أو زمنًا.
       if (requestedExtra || requestedTime) {
-        final itemData = _itemData ?? const <String, dynamic>{};
+        final double excess = requestedExtra
+            ? (newExecuted - contractQuantity)
+                .clamp(0, double.infinity)
+                .toDouble()
+            : 0;
+        final double percent = requestedExtra && contractQuantity > 0
+            ? (excess / contractQuantity * 100)
+                .clamp(0, maxExtraQuantityPercent)
+                .toDouble()
+            : 0;
 
-        await ItemApprovals.request(
-          itemId: widget.itemId,
-          projectId: widget.projectId,
+        await _sendApprovalRequest(
           kind: requestedExtra
               ? ApprovalKind.extraQuantity
               : ApprovalKind.timeExtension,
-          itemName: _itemName(itemData),
-          typeName: _stringValue(itemData['typeName']),
-          unit: _stringValue(itemData['unit']),
           contractQuantity: contractQuantity,
           executedQuantity: previousExecuted,
-          requestedPercent:
-              requestedExtra ? maxExtraQuantityPercent : 0,
-          requestedDays: 0,
+          totalAfter: newExecuted,
+          requestedQuantity: excess,
+          requestedPercent: percent,
           note: requestedExtra
               ? 'تجاوزت الكمية المنفذة الكمية التعاقدية'
               : 'انتهى زمن البند',
-          requestedBy: user.uid,
         );
       }
 
@@ -929,7 +1324,7 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
           ),
           AppSpacing.verticalSm,
           AppInfoRow(
-            label: 'الكمية المنفذة المسجلة',
+            label: 'الكمية المنفذة',
             value: '${_formatNumber(executed)} $unit',
             icon: Icons.done_all,
           ),
@@ -962,9 +1357,42 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
             AppSpacing.verticalSm,
             AppInfoRow(
               label: 'كمية إضافية معتمدة من مدير الجودة',
-              value: '${_formatNumber(allowance.extraPercent)}% '
-                  '= ${_formatNumber(allowance.extraAllowance)} $unit',
+              value: '+${_formatNumber(allowance.extraAllowance)} $unit '
+                  '(${_formatNumber(allowance.extraPercent)}%)',
               icon: Icons.verified_outlined,
+            ),
+          ],
+          if (_pendingExtra != null) ...[
+            AppSpacing.verticalSm,
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.warning.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.hourglass_top,
+                    color: AppColors.warning,
+                    size: 20,
+                  ),
+                  AppSpacing.horizontalSm,
+                  Expanded(
+                    child: Text(
+                      'طلب كمية إضافية قيد مراجعة مدير إدارة الجودة: '
+                      '+${_formatNumber(_pendingExtra!.effectiveQuantity)} '
+                      '$unit '
+                      '(${_formatNumber(_pendingExtra!.effectivePercent)}%). '
+                      'لا يمكن تجاوز الكمية التعاقدية حتى تتم الموافقة.',
+                      style: AppTextStyles.small.copyWith(
+                        color: AppColors.warning,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
           if (!allowance.extraApproved && allowance.isOverContract) ...[
@@ -1023,6 +1451,30 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
                 ? null
                 : _saveExecutedQuantity,
           ),
+          if (completed && _pendingExtra == null) ...[
+            AppSpacing.verticalSm,
+            Text(
+              'استُهلكت الكمية المسموحة لهذا البند. إن كانت لديك كمية '
+              'أخرى فاطلب كمية إضافية من مدير الجودة.',
+              style: AppTextStyles.small,
+              textAlign: TextAlign.center,
+            ),
+          ],
+          if (contract > 0 && !timeExpired) ...[
+            AppSpacing.verticalSm,
+            AppOutlinedButton(
+              label: _pendingExtra == null
+                  ? 'طلب كمية إضافية'
+                  : 'طلب كمية إضافية (قيد المراجعة)',
+              icon: Icons.add_chart_outlined,
+              expanded: true,
+              onPressed: _savingQuantity || _pendingExtra != null
+                  ? null
+                  : () => _showExtraQuantityDialog(
+                        suggestedExtra: 0,
+                      ),
+            ),
+          ],
         ],
       ),
     );
@@ -1492,4 +1944,15 @@ class _AssignmentDetailsPageState extends State<AssignmentDetailsPage> {
                 ),
     );
   }
+}
+
+/// نتيجة نافذة «كمية إضافية»: الكمية المطلوبة بالوحدات وسبب الطلب.
+class _ExtraRequestInput {
+  const _ExtraRequestInput({
+    required this.extra,
+    required this.note,
+  });
+
+  final double extra;
+  final String note;
 }

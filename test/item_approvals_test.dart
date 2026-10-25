@@ -180,4 +180,124 @@ void main() {
       expect(maxExtraQuantityPercent, 20);
     });
   });
+
+  // ============================================================
+  // قرار «الكمية الإضافية» قبل إدخال الكمية المنفذة
+  // ============================================================
+  group('ExtraQuantityPlan — قرار الكمية الإضافية', () {
+    test('إدخال داخل الكمية التعاقدية: لا يحتاج طلبًا', () {
+      final plan = ExtraQuantityPlan.of(
+        contractQuantity: 700,
+        executedQuantity: 100,
+        enteredQuantity: 50,
+      );
+
+      expect(plan.totalAfter, 150);
+      expect(plan.needsRequest, isFalse);
+      expect(plan.exceedsCap, isFalse);
+      expect(plan.excessQuantity, 0);
+      expect(plan.requestedPercent, 0);
+    });
+
+    test('تراكم الكميات: 50 ثم 100 على عقد 700 = 150', () {
+      final plan = ExtraQuantityPlan.of(
+        contractQuantity: 700,
+        executedQuantity: 50,
+        enteredQuantity: 100,
+      );
+
+      expect(plan.totalAfter, 150);
+      expect(plan.needsRequest, isFalse);
+    });
+
+    test('تجاوز التعاقدية: يُحسب الفائض والنسبة المطلوبة', () {
+      final plan = ExtraQuantityPlan.of(
+        contractQuantity: 700,
+        executedQuantity: 650,
+        enteredQuantity: 100,
+      );
+
+      expect(plan.totalAfter, 750);
+      expect(plan.needsRequest, isTrue);
+      expect(plan.exceedsCap, isFalse);
+      expect(plan.excessQuantity, 50);
+      expect(plan.requestedPercent, closeTo(7.1428, 0.001));
+      expect(plan.requestedQuantity, closeTo(50, 0.001));
+      expect(plan.requestedTotal, closeTo(750, 0.001));
+      expect(plan.maxEnterableNow, 190);
+    });
+
+    test('تجاوز سقف 20%: النسبة تُقيَّد بالسقف ويُعلَم التجاوز', () {
+      final plan = ExtraQuantityPlan.of(
+        contractQuantity: 700,
+        executedQuantity: 700,
+        enteredQuantity: 200,
+      );
+
+      expect(plan.totalAfter, 900);
+      expect(plan.maxAllowedQuantity, 840);
+      expect(plan.needsRequest, isTrue);
+      expect(plan.exceedsCap, isTrue);
+      expect(plan.requestedPercent, maxExtraQuantityPercent);
+      expect(plan.requestedQuantity, closeTo(140, 0.001));
+      expect(plan.requestedTotal, closeTo(840, 0.001));
+    });
+
+    test('بعد موافقة 10%: الحد يرتفع إلى 110% من التعاقدية', () {
+      final plan = ExtraQuantityPlan.of(
+        contractQuantity: 1000,
+        executedQuantity: 1090,
+        enteredQuantity: 30,
+        approvedPercent: 10,
+        extraApproved: true,
+      );
+
+      expect(plan.allowedQuantity, 1100);
+      expect(plan.totalAfter, 1120);
+      expect(plan.needsRequest, isTrue);
+      expect(plan.approvedPercent, 10);
+      expect(plan.requestedPercent, closeTo(12, 0.001));
+    });
+
+    test('بعد موافقة 10%: إدخال داخل الحد المعتمد لا يحتاج طلبًا', () {
+      final plan = ExtraQuantityPlan.of(
+        contractQuantity: 1000,
+        executedQuantity: 1050,
+        enteredQuantity: 40,
+        approvedPercent: 10,
+        extraApproved: true,
+      );
+
+      expect(plan.totalAfter, 1090);
+      expect(plan.allowedQuantity, 1100);
+      expect(plan.needsRequest, isFalse);
+      expect(plan.excessQuantity, 50);
+    });
+
+    test('بلا كمية تعاقدية: لا طلب ولا سقف', () {
+      final plan = ExtraQuantityPlan.of(
+        contractQuantity: 0,
+        executedQuantity: 10,
+        enteredQuantity: 5,
+      );
+
+      expect(plan.needsRequest, isFalse);
+      expect(plan.exceedsCap, isFalse);
+      expect(plan.requestedPercent, 0);
+      expect(plan.allowedQuantity, double.infinity);
+    });
+
+    test('قيم سالبة تُعامل كصفر', () {
+      final plan = ExtraQuantityPlan.of(
+        contractQuantity: 100,
+        executedQuantity: -20,
+        enteredQuantity: -5,
+      );
+
+      expect(plan.executedQuantity, 0);
+      expect(plan.enteredQuantity, 0);
+      expect(plan.totalAfter, 0);
+      expect(plan.needsRequest, isFalse);
+    });
+  });
 }
