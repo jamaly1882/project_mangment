@@ -7,6 +7,7 @@ import 'accounting_format.dart';
 import 'accounting_models.dart';
 import 'accounting_service.dart';
 import 'accounting_widgets.dart';
+import 'project_budget_page.dart';
 
 // ============================================================
 // التقارير المالية للوحدة
@@ -79,6 +80,17 @@ class _AccountingReportsPageState extends State<AccountingReportsPage> {
     return AppScaffold(
       title: 'التقارير المالية',
       actions: <Widget>[
+        IconButton(
+          tooltip: 'ميزانية المشاريع',
+          icon: const Icon(Icons.pie_chart_outline),
+          onPressed: () {
+            Navigator.of(context).push<void>(
+              MaterialPageRoute<void>(
+                builder: (_) => ProjectBudgetPage(scope: widget.scope),
+              ),
+            );
+          },
+        ),
         IconButton(
           tooltip: 'تحديث',
           icon: const Icon(Icons.refresh),

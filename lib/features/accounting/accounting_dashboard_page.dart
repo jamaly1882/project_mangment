@@ -15,6 +15,7 @@ import 'accounting_widgets.dart';
 import 'cash_box_page.dart';
 import 'chart_of_accounts_page.dart';
 import 'journal_entries_page.dart';
+import 'project_budget_page.dart';
 import 'voucher_form_page.dart';
 import 'vouchers_page.dart';
 
@@ -495,6 +496,17 @@ class _AccountingDashboardPageState extends State<AccountingDashboardPage> {
                             canEdit: data.canEdit,
                             scope: widget.scope,
                           ),
+                        ),
+                      ),
+                      AppManagementCard(
+                        title: 'ميزانية المشاريع',
+                        subtitle:
+                            'أصول وخصوم وإيرادات ومصروفات كل مشروع، '
+                            'وما يشمله كل قسم',
+                        icon: Icons.pie_chart_outline,
+                        color: AppColors.financialManager,
+                        onTap: () => _open(
+                          ProjectBudgetPage(scope: widget.scope),
                         ),
                       ),
                       AppManagementCard(

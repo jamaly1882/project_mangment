@@ -284,6 +284,41 @@ class AccountingService {
     return OpeningBalance.fromMap(snapshot.data());
   }
 
+  /// كل الأرصدة الافتتاحية دفعة واحدة.
+  ///
+  /// المفتاح هو معرّف المشروع، والمفتاح الفارغ `''` هو رصيد
+  /// الوحدة كاملة (`finance_settings/opening`) — وهو رصيد
+  /// الحركات غير المرتبطة بمشروع.
+  ///
+  /// تُستخدم في «ميزانية المشاريع» لعرض ميزانية كل مشروع مع
+  /// رصيده الافتتاحي دون قراءة وثيقة لكل مشروع على حدة.
+  Future<Map<String, OpeningBalance>> loadOpeningBalances() async {
+    final QuerySnapshot<Map<String, dynamic>> snapshot =
+        await _db.collection('finance_settings').get();
+    final Map<String, OpeningBalance> opening = <String, OpeningBalance>{};
+
+    for (final QueryDocumentSnapshot<Map<String, dynamic>> doc
+        in snapshot.docs) {
+      final Map<String, dynamic> data = doc.data();
+      final bool looksLikeOpening = doc.id == 'opening' ||
+          doc.id.startsWith('opening_') ||
+          data.containsKey('cash') ||
+          data.containsKey('bank');
+      if (!looksLikeOpening) continue;
+
+      String projectId = (data['projectId'] ?? '').toString().trim();
+      if (projectId.isEmpty && doc.id.startsWith('opening_')) {
+        // وثائق قديمة قد لا تحمل حقل projectId، فمعرّف الوثيقة
+        // يكون `opening_<projectId>`.
+        projectId = doc.id.substring('opening_'.length);
+      }
+
+      opening[projectId] = OpeningBalance.fromMap(data);
+    }
+
+    return opening;
+  }
+
   /// يقرأ السندات والقيود والرصيد الافتتاحي معًا.
   ///
   /// [projectId] غير الفارغ يقيّد كل شيء بمشروع المحاسب.
