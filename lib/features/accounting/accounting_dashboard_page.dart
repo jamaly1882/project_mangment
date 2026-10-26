@@ -15,6 +15,7 @@ import 'accounting_widgets.dart';
 import 'cash_box_page.dart';
 import 'chart_of_accounts_page.dart';
 import 'journal_entries_page.dart';
+import 'project_budget_page.dart';
 import 'voucher_form_page.dart';
 import 'vouchers_page.dart';
 
@@ -497,13 +498,31 @@ class _AccountingDashboardPageState extends State<AccountingDashboardPage> {
                           ),
                         ),
                       ),
+                      if (data.isFinanceManager || widget.scope.isScoped)
+                        AppManagementCard(
+                          title: 'ميزانية المشاريع',
+                          subtitle:
+                              'أصول وخصوم وإيرادات ومصروفات المشروع، '
+                              'وما يشمله كل قسم',
+                          icon: Icons.pie_chart_outline,
+                          color: AppColors.financialManager,
+                          onTap: () => _open(
+                            ProjectBudgetPage(
+                              scope: widget.scope,
+                              canViewAllProjects: data.isFinanceManager,
+                            ),
+                          ),
+                        ),
                       AppManagementCard(
                         title: 'التقارير المالية',
                         subtitle: 'ملخص الفترة والحركة حسب المشروع والميزان',
                         icon: Icons.bar_chart,
                         color: AppColors.info,
                         onTap: () => _open(
-                          AccountingReportsPage(scope: widget.scope),
+                          AccountingReportsPage(
+                            scope: widget.scope,
+                            canViewAllProjects: data.isFinanceManager,
+                          ),
                         ),
                       ),
                       AppManagementCard(
@@ -649,9 +668,12 @@ class _AccountingDashboardPageState extends State<AccountingDashboardPage> {
                 Text(
                   scoped
                       ? 'كل ما تسجّله من سندات وقيود وصندوق يخصّ هذا '
-                          'المشروع فقط، ولا يظهر لك غيره.'
-                      : 'تُعرض لك كل مشاريع الوحدة. اطلب من المدير المالي '
-                          'ربطك بمشروع لتقتصر أعمالك عليه.',
+                          'المشروع فقط، ولا يظهر لك غيره. وميزانية '
+                          'المشاريع تُعرض لمشروعك وحده.'
+                      : 'تُعرض لك حركة الوحدة، لكن ميزانية المشاريع '
+                          'مخصّصة لمشروع المحاسب المربوط فقط. اطلب من '
+                          'المدير المالي ربطك بمشروع لتظهر لك ميزانيته '
+                          'ولا تصل إلى ميزانية مشروع آخر.',
                   style: AppTextStyles.bodySecondary,
                 ),
               ],
