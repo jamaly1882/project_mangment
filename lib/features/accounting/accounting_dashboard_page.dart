@@ -498,24 +498,31 @@ class _AccountingDashboardPageState extends State<AccountingDashboardPage> {
                           ),
                         ),
                       ),
-                      AppManagementCard(
-                        title: 'ميزانية المشاريع',
-                        subtitle:
-                            'أصول وخصوم وإيرادات ومصروفات كل مشروع، '
-                            'وما يشمله كل قسم',
-                        icon: Icons.pie_chart_outline,
-                        color: AppColors.financialManager,
-                        onTap: () => _open(
-                          ProjectBudgetPage(scope: widget.scope),
+                      if (data.isFinanceManager || widget.scope.isScoped)
+                        AppManagementCard(
+                          title: 'ميزانية المشاريع',
+                          subtitle:
+                              'أصول وخصوم وإيرادات ومصروفات المشروع، '
+                              'وما يشمله كل قسم',
+                          icon: Icons.pie_chart_outline,
+                          color: AppColors.financialManager,
+                          onTap: () => _open(
+                            ProjectBudgetPage(
+                              scope: widget.scope,
+                              canViewAllProjects: data.isFinanceManager,
+                            ),
+                          ),
                         ),
-                      ),
                       AppManagementCard(
                         title: 'التقارير المالية',
                         subtitle: 'ملخص الفترة والحركة حسب المشروع والميزان',
                         icon: Icons.bar_chart,
                         color: AppColors.info,
                         onTap: () => _open(
-                          AccountingReportsPage(scope: widget.scope),
+                          AccountingReportsPage(
+                            scope: widget.scope,
+                            canViewAllProjects: data.isFinanceManager,
+                          ),
                         ),
                       ),
                       AppManagementCard(
@@ -661,9 +668,12 @@ class _AccountingDashboardPageState extends State<AccountingDashboardPage> {
                 Text(
                   scoped
                       ? 'كل ما تسجّله من سندات وقيود وصندوق يخصّ هذا '
-                          'المشروع فقط، ولا يظهر لك غيره.'
-                      : 'تُعرض لك كل مشاريع الوحدة. اطلب من المدير المالي '
-                          'ربطك بمشروع لتقتصر أعمالك عليه.',
+                          'المشروع فقط، ولا يظهر لك غيره. وميزانية '
+                          'المشاريع تُعرض لمشروعك وحده.'
+                      : 'تُعرض لك حركة الوحدة، لكن ميزانية المشاريع '
+                          'مخصّصة لمشروع المحاسب المربوط فقط. اطلب من '
+                          'المدير المالي ربطك بمشروع لتظهر لك ميزانيته '
+                          'ولا تصل إلى ميزانية مشروع آخر.',
                   style: AppTextStyles.bodySecondary,
                 ),
               ],

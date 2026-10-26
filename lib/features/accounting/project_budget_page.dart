@@ -23,16 +23,29 @@ import 'project_budget.dart';
 // كل الأرقام مشتقة من قيود اليومية (بما فيها قيود السندات) ومن
 // الأرصدة الافتتاحية `finance_settings/opening_<projectId>`،
 // فلا يوجد إدخال مكرر في هذه الشاشة.
+//
+// الصلاحية ([canAccessProjectBudgets]):
+//   • المحاسب المربوط بمشروع: ميزانية مشروعه فقط.
+//   • المدير المالي: ميزانية كل المشاريع.
+//   • المحاسب غير المربوط: لا صلاحية؛ فلا يصل إلى ميزانية أي
+//     مشروع آخر، وتظهر له رسالة بطلب الربط من المدير المالي.
 // ============================================================
 
 class ProjectBudgetPage extends StatefulWidget {
   const ProjectBudgetPage({
     super.key,
     this.scope = AccountingScope.none,
+    this.canViewAllProjects = false,
   });
 
   /// مشروع المحاسب: ميزانية هذا المشروع فقط.
   final AccountingScope scope;
+
+  /// صلاحية عرض ميزانية **كل** المشاريع (المدير المالي فقط).
+  ///
+  /// المحاسب غير المربوط بمشروع لا تُمنح له هذه الصلاحية، فلا
+  /// يستطيع الوصول إلى ميزانية مشروع آخر؛ تُعرض له رسالة ربط.
+  final bool canViewAllProjects;
 
   @override
   State<ProjectBudgetPage> createState() => _ProjectBudgetPageState();
@@ -50,11 +63,19 @@ class _ProjectBudgetPageState extends State<ProjectBudgetPage> {
 
   bool get _isScoped => widget.scope.isScoped;
 
+  /// هل يملك المستخدم صلاحية فتح الميزانية؟
+  bool get _hasAccess => canAccessProjectBudgets(
+        isScopedToProject: _isScoped,
+        canViewAllProjects: widget.canViewAllProjects,
+      );
+
   @override
   void initState() {
     super.initState();
     _selected = _isScoped ? widget.scope.projectId : _allProjectsKey;
-    _future = _load();
+    _future = _hasAccess ? _load() : Future<_BudgetData>.value(
+      const _BudgetData.empty(),
+    );
   }
 
   Future<_BudgetData> _load() async {
@@ -93,6 +114,8 @@ class _ProjectBudgetPageState extends State<ProjectBudgetPage> {
   }
 
   void _reload() {
+    if (!_hasAccess) return;
+
     setState(() {
       _future = _load();
     });
@@ -135,6 +158,38 @@ class _ProjectBudgetPageState extends State<ProjectBudgetPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_hasAccess) {
+      return AppScaffold(
+        title: 'ميزانية المشاريع',
+        child: AppPage(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              const AppPageHeader(
+                title: 'ميزانية المشاريع',
+                subtitle:
+                    'عرض أصول وخصوم وحقوق ملكية وإيرادات ومصروفات '
+                    'المشروع، وما يشمله كل قسم.',
+                icon: Icons.pie_chart_outline,
+              ),
+              AppCard(
+                color: AppColors.warning.withValues(alpha: 0.06),
+                child: AccountingEmptyState(
+                  title: 'لا تملك صلاحية عرض ميزانية المشاريع',
+                  message:
+                      'أنت محاسب غير مربوط بمشروع، وميزانية المشاريع '
+                      'تُعرض لمشروع المحاسب المحدد فقط. اطلب من المدير '
+                      'المالي ربط حسابك بمشروع؛ وبعد الربط تظهر لك '
+                      'ميزانية مشروعك وحدها.',
+                  icon: Icons.lock_outline,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return AppScaffold(
       title: 'ميزانية المشاريع',
       actions: <Widget>[

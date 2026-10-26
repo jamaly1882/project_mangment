@@ -291,6 +291,38 @@ void main() {
     });
   });
 
+  group('صلاحية الوصول إلى ميزانية المشاريع', () {
+    test('المحاسب المربوط بمشروع: يفتح ميزانية مشروعه فقط', () {
+      expect(
+        canAccessProjectBudgets(
+          isScopedToProject: true,
+          canViewAllProjects: false,
+        ),
+        isTrue,
+      );
+    });
+
+    test('المحاسب غير المربوط: لا يصل إلى ميزانية أي مشروع', () {
+      expect(
+        canAccessProjectBudgets(
+          isScopedToProject: false,
+          canViewAllProjects: false,
+        ),
+        isFalse,
+      );
+    });
+
+    test('المدير المالي: يفتح ميزانية كل المشاريع', () {
+      expect(
+        canAccessProjectBudgets(
+          isScopedToProject: false,
+          canViewAllProjects: true,
+        ),
+        isTrue,
+      );
+    });
+  });
+
   group('الرصيد الافتتاحي', () {
     test('بلا حركات: أصول وحقوق ملكية متساوية', () {
       final ProjectBudget budget = buildProjectBudget(

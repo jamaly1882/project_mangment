@@ -27,6 +27,19 @@ const String budgetUnassignedProjectId = '';
 
 const String budgetUnassignedProjectLabel = 'بدون مشروع';
 
+/// هل يُسمح للمستخدم بفتح شاشة ميزانية المشاريع؟
+///
+/// - المحاسب المربوط بمشروع: نعم، ويرى ميزانية مشروعه فقط.
+/// - المدير المالي (صلاحية عرض كل المشاريع): نعم.
+/// - المحاسب غير المربوط: لا؛ فلا يصل إلى ميزانية مشروع آخر
+///   حتى يربطه المدير المالي بمشروع.
+bool canAccessProjectBudgets({
+  required bool isScopedToProject,
+  required bool canViewAllProjects,
+}) {
+  return isScopedToProject || canViewAllProjects;
+}
+
 /// مرجع مشروع تُبنى له ميزانية (يُقرأ من مجموعة `projects`).
 class BudgetProjectRef {
   const BudgetProjectRef({
